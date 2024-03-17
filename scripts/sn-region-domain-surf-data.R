@@ -203,7 +203,7 @@ dummy = nc_close(ref_surf)
 newsurf_name = "wrf-sn-surfdata_20240316.nc"
 file.copy(from = sub_path, to = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name),overwrite=TRUE)
 newsurf = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name)
-nc_copy = nc_open(ncpath,write=TRUE)
+nc_copy = nc_open(newsurf,write=TRUE)
 
 for (n in sequence(nsub)){
   cord_now = sub_xy[n,]
