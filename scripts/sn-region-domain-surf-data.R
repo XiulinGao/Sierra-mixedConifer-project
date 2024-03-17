@@ -200,29 +200,25 @@ ref_org    = ncvar_get(ref_surf,"ORGANIC")
 ref_xy    = as.data.frame(cbind(as.vector(ref_x),as.vector(ref_y)))
 dummy = nc_close(ref_surf)
 
-changesurf_fun = function(sub_cord,ncpath){
-  nn_ref    = RANN::nn2(ref_xy[,1:2],sub_cord[,1:2],k=1)
+newsurf_name = "wrf-sn-surfdata_20240316.nc"
+file.copy(from = sub_path, to = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name),overwrite=TRUE)
+newsurf = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name)
+nc_copy = nc_open(ncpath,write=TRUE)
+
+for (n in sequence(nsub)){
+  cord_now = sub_xy[n,]
+  nn_ref    = RANN::nn2(ref_xy[,1:2],cord_now[,1:2],k=1)
   nn_idx    = as.vector(nn_ref$nn.idx)
   ref_idx   = which(ref_arrayx==ref_xy$V1[nn_idx] & ref_arrayy==ref_xy$V2[nn_idx], arr.ind=TRUE)
-  sub_idx1  = which(array_subx == sub_cord[1,1],arr.ind=TRUE)
-  sub_idx2  = which(array_suby == sub_cord[1,2],arr.ind=TRUE)
+  sub_idx1  = which(array_subx == cord_now[1,1],arr.ind=TRUE)
+  sub_idx2  = which(array_suby == cord_now[1,2],arr.ind=TRUE)
   sub_idx   = intersect(sub_idx1,sub_idx2)
   if(length(sub_idx)==1){sub_idx=c(sub_idx,sub_idx)} #case where col idx == row idx!
-  nc_copy = nc_open(ncpath,write=TRUE)
+  
   dummy   = ncvar_put(nc_copy, varid="PCT_SAND",  vals = ref_sand[ref_idx[1,1],ref_idx[1,2],],  start=c(sub_idx[1],sub_idx[2],1),count=c(1,1,10))
   dummy   = ncvar_put(nc_copy, varid="PCT_CLAY",  vals = ref_clay[ref_idx[1,1],ref_idx[1,2],],  start=c(sub_idx[1],sub_idx[2],1),count=c(1,1,10))
   dummy   = ncvar_put(nc_copy, varid="SOIL_COLOR",vals = ref_color[ref_idx[1,1],ref_idx[1,2]],  start=c(sub_idx[1],sub_idx[2]),count=c(1,1))
   dummy   = ncvar_put(nc_copy, varid="ORGANIC",  vals = ref_org[ref_idx[1,1],ref_idx[1,2],],    start=c(sub_idx[1],sub_idx[2],1),count=c(1,1,10))
-  dummy   = nc_close(nc_copy)
 }
 
-newsurf_name = "wrf-sn-surfdata_20240316.nc"
-file.copy(from = sub_path, to = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name),overwrite=TRUE)
-newsurf = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name)
-
-for (n in sequence(nsub)){
-  cord_now = sub_xy[n,]
-  changesurf_fun(sub_cord=cord_now,ncpath=newsurf)
-}
-
-
+dummy   = nc_close(nc_copy)
