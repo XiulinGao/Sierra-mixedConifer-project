@@ -183,7 +183,6 @@ sub_vars = c("PCT_SAND"  ,
              "PCT_CLAY"  ,
              "SOIL_COLOR",
              "ORGANIC")
-nvars     = length(sub_vars)
 
 msk       = nc_open(msk_path)
 msk_cells = as.vector(ncvar_get(msk,"landmask"))
@@ -203,7 +202,7 @@ ref_color  = ncvar_get(ref_surf,"SOIL_COLOR")
 ref_org    = ncvar_get(ref_surf,"ORGANIC")
 
 ref_xy    = as.data.frame(cbind(as.vector(ref_x),as.vector(ref_y)))
-
+dummy = nc_close(ref_surf)
 
 changesurf_fun = function(sub_cord,ncpath){
   nn_ref    = RANN::nn2(ref_xy[,1:2],sub_cord[,1:2],k=1)
