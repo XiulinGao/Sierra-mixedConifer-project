@@ -179,10 +179,6 @@ sub_path = "~/Google Drive/My Drive/Sierra-mixedConifer-data/surfdata_wrf_CA_his
 msk_path = "~/Google Drive/My Drive/Sierra-mixedConifer-data/wrf-sierra_20240315.nc"
 
 ref_surf = nc_open(ref_path)
-sub_vars = c("PCT_SAND"  ,
-             "PCT_CLAY"  ,
-             "SOIL_COLOR",
-             "ORGANIC")
 
 msk       = nc_open(msk_path)
 msk_cells = as.vector(ncvar_get(msk,"landmask"))
