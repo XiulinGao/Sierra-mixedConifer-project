@@ -62,7 +62,7 @@ plot(terra::rast(resamp_ngb))
 
 mask_df = as.data.frame(resamp_ngb,xy=TRUE)
 
-wrf_qry        = wrf_df %>% dplyr::select(x_vec,y_vec,cellid,tobt_vec)
+wrf_qry        = wrf_df %>% dplyr::select(x_vec,y_vec,cellid)
 wrf_qry$mask   = 0
 
 #search for the nearest neighbor in wrf for each corresponding filtered nlcd cell
