@@ -368,7 +368,7 @@ nc_xy  = list   (xx,yy)
 nc_xyt = list   (xx,yy,tt)
 nc_t   = list   (tt)
 xy     = c(dim(XLONG)[1],dim(XLONG)[2])
-xyt    = c(dim(XLONG)[1],dim(XLONG)[2],length(time_val))
+xyt    = c(dim(XLONG)[1],dim(XLONG)[2],dim_t)
 file_name = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data/sierra-harvest_1901-2000-landuse_20240322.nc")
 nc_vlist        = list()
 nc_vlist$LONGXY = ncvar_def(  name      = "LONGXY"
@@ -389,12 +389,37 @@ nc_vlist$time   = ncvar_def( name       = "time"
                              , missval  = undef
                              , longname = "observation time"
 )#end ncvar_def
-nc_vlist$lnfm   = ncvar_def( name       = "HARVEST_VH1"
+nc_vlist$HARVEST_VH1   = ncvar_def( name       = "HARVEST_VH1"
                              , units    = "unitless"
                              , dim      = nc_xyt
                              , missval  = undef
                              , longname = "harvest from primary forest"
-)#end ncvar_def
+)
+nc_vlist$HARVEST_VH2   = ncvar_def( name       = "HARVEST_VH2"
+                             , units    = "unitless"
+                             , dim      = nc_xyt
+                             , missval  = undef
+                             , longname = "harvest from primary non-forest"
+)
+nc_vlist$HARVEST_SH1   = ncvar_def( name       = "HARVEST_SH1"
+                             , units    = "unitless"
+                             , dim      = nc_xyt
+                             , missval  = undef
+                             , longname = "harvest from secondary mature-forest"
+)
+nc_vlist$HARVEST_SH2  = ncvar_def( name       = "HARVEST_SH2"
+                             , units    = "unitless"
+                             , dim      = nc_xyt
+                             , missval  = undef
+                             , longname = "harvest from secondary young-forest"
+)
+nc_vlist$HARVEST_SH3  = ncvar_def( name       = "HARVEST_SH3"
+                             , units    = "unitless"
+                             , dim      = nc_xyt
+                             , missval  = undef
+                             , longname = "harvest from secondary non-forest"
+)#end of nc_vlist
+
 
 ### define global attributes
 
@@ -415,6 +440,12 @@ dummy = ncvar_put(nc=nc_new,varid="LONGXY",vals=array(data=x_vec,dim=xy))
 dummy = ncvar_put(nc=nc_new,varid="LATIXY", vals=array(data=y_vec, dim=xy))
 dummy = ncvar_put(nc=nc_new, varid ="time", vals=sequence(dim_t))
 dummy = ncvar_put(nc=nc_new, varid ="HARVEST_VH1",vals=hvst_wrf)
+dummy = ncvar_put(nc=nc_new, varid ="HARVEST_VH2",vals=array(0,dim=xyt))
+dummy = ncvar_put(nc=nc_new, varid ="HARVEST_SH1",vals=array(0,dim=xyt))
+dummy = ncvar_put(nc=nc_new, varid ="HARVEST_SH2",vals=array(0,dim=xyt))
+dummy = ncvar_put(nc=nc_new, varid ="HARVEST_SH3",vals=array(0,dim=xyt))
+
+
 
 nc_title   = "Prescribed harvest for Sierra region on WRF domain "
 att_global = modifyList( x = att_template, val = list( title = nc_title ))
