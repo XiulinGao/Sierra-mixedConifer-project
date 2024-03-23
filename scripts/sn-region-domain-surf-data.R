@@ -28,8 +28,8 @@ undef        = -9999
 reg_domain = nc_open(ref_path)
 wrf_domain = nc_open(wrf_path)
 reg_msk    = ncvar_get(reg_domain,"mask")
-reg_lon    = ncvar_get(reg_domain,"xv")
-reg_lat    = ncvar_get(reg_domain,"yv")
+reg_lon    = ncvar_get(reg_domain,"xc")
+reg_lat    = ncvar_get(reg_domain,"yc")
 reg_lon    = reg_lon - 360
 dummy      = nc_close(reg_domain)
 
@@ -75,7 +75,14 @@ wrf_qry = wrf_qry                                     %>%
 
 wrf_dfil = wrf_qry                                     %>%  
            dplyr::select(x_vec,y_vec,mask)             %>% 
-           rename(lon=x_vec,lat=y_vec)                 
+           rename(lon=x_vec,lat=y_vec)       
+
+## Northern strip domain
+strip_n = wrf_dfil                                     %>% 
+          mutate(mask = if_else(lon > -123 & lat < 40 & lat > 39.5, mask, 0))
+## Southern strip domain
+strip_s = wrf_dfil                                     %>% 
+          mutate(mask = if_else(lat > 36.3 & lat < 37 & lon > -123, mask, 0))
 
 
 fil_var   = matrix(as.factor(wrf_dfil$mask), nrow=147,ncol=151)
@@ -109,7 +116,7 @@ xx  = ncdim_def( name="lon"   ,units="",vals= sequence(147)  ,create_dimvar=FALS
 yy  = ncdim_def( name="lat"   ,units="",vals= sequence(151)  ,create_dimvar=FALSE)
 nc_xy  = list   (xx,yy)
 xy     = c(147,151)
-file_name = file.path("~/Google Drive/My Drive/wrf-sierra_20240315.nc")
+file_name = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data/sierra-southstrip_20240321.nc")
 nc_vlist        = list()
 nc_vlist$LONGXY = ncvar_def(  name      = "lsmlon"
                               , units    = "degrees_east"
@@ -222,3 +229,205 @@ for (n in sequence(nsub)){
 }
 
 dummy   = nc_close(nc_copy)
+
+
+#### prescribed ignition + land use data ####
+in_path  = "~/Google Drive/My Drive/Sierra-mixedConifer-data/SN_prescribed_ignitions_0.0015perday.nc"
+igni     = nc_open(in_path)
+igni_val = ncvar_get(igni,"lnfm")  # this ignition only has temporal variations and uniformly distributed throughout space so no
+time_val = ncvar_get(igni,"time")  # need to resample 
+dummy    = nc_close(igni)
+change_dim = function(arry2d){
+ if (range(arry2d)[1] == range(arry2d)[2]){
+   out = array(range(arry2d[1]),c(147,151))
+ }else{
+   stop("array with varying values, try to resample")
+ }
+}
+
+igni_out = apply(igni_val,3,change_dim)
+dim(igni_out) = c(dim(XLONG)[1],dim(XLONG)[2],length(time_val))
+
+xx  = ncdim_def( name="lon"   ,units="",vals= sequence(dim(XLONG)[1])        ,create_dimvar=FALSE)
+yy  = ncdim_def( name="lat"   ,units="",vals= sequence(dim(XLONG)[2])        ,create_dimvar=FALSE)
+tt  = ncdim_def( name="time"  ,units="",vals=sequence(length(time_val))      ,create_dimvar=FALSE)
+nc_xy  = list   (xx,yy)
+nc_xyt = list   (xx,yy,tt)
+nc_t   = list   (tt)
+xy     = c(dim(XLONG)[1],dim(XLONG)[2])
+xyt    = c(dim(XLONG)[1],dim(XLONG)[2],length(time_val))
+file_name = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data/sierra-prescribed-ignition_20240321.nc")
+nc_vlist        = list()
+nc_vlist$LONGXY = ncvar_def(  name      = "LONGXY"
+                              , units    = "degrees_east"
+                              , dim      = nc_xy
+                              , missval  = undef
+                              , longname = "longitude"
+)#end ncvar_def
+nc_vlist$LATIXY = ncvar_def( name       = "LATIXY"
+                             , units    = "degrees_north"
+                             , dim      = nc_xy
+                             , missval  = undef
+                             , longname = "latitude"
+)#end ncvar_def
+nc_vlist$time   = ncvar_def( name        = "time"
+                              , units    = "days since 1901-01-01 00:00:00"
+                              , dim      = nc_t
+                              , missval  = undef
+                              , longname = "observation time"
+)#end ncvar_def
+nc_vlist$lnfm   = ncvar_def( name        = "lnfm"
+                              , units    = "number/km2/hr"
+                              , dim      = nc_xyt
+                              , missval  = undef
+                              , longname = "number of ignition"
+)#end ncvar_def
+
+### define global attributes
+
+att_template = list( title            = "To be replaced when looping through months"
+                     , date_created   = paste0(as.character(now(tzone="UTC")), "UTC")
+                     , source_code    = "sn-region-domain-surf-data.R"
+                     , code_notes     = "prescribed ignition for Sierra region on WRF domain "
+                     , code_developer = paste0( author_name
+                                                ," <"
+                                                , author_email
+                                                ,">"
+                     )#end paste0
+                     , file_author    = paste0(author_name," <",author_email,">")
+)#end list
+
+nc_new <- nc_create(filename=file_name,vars=nc_vlist,verbose=FALSE)
+dummy = ncvar_put(nc=nc_new,varid="LONGXY",vals=array(data=x_vec,dim=xy))
+dummy = ncatt_put(nc=nc_new,varid="LONGXY",attname="mode",attval="time-invariant")
+dummy = ncvar_put(nc=nc_new,varid="LATIXY", vals=array(data=y_vec, dim=xy))
+dummy = ncatt_put(nc=nc_new,varid="LATIXY",attname="mode",attval="time-invariant")
+dummy = ncvar_put(nc=nc_new, varid ="time",vals=time_val)
+dummy = ncatt_put(nc=nc_new, varid ="time",attname="calendar",attval="noleap")
+dummy = ncvar_put(nc=nc_new, varid ="lnfm",vals=igni_out)
+dummy = ncatt_put(nc=nc_new, varid ="lnfm",attname="mode",attval="time-dependent")
+
+nc_title   = "Prescribed ignition for Sierra region on WRF domain "
+att_global = modifyList( x = att_template, val = list( title = nc_title ))
+
+
+# Loop through global attributes
+for (l in seq_along(att_global)){
+  # Current attribute information
+  att_name  = names(att_global)[l]
+  att_value = att_global[[l]]
+  
+  # Add attribute 
+  dummy = ncatt_put(nc=nc_new,varid=0,attname=att_name,attval=att_value)
+}#end for (l in seq_along(att_global))
+nc_close(nc_new)
+
+
+in_path = "~/Google Drive/My Drive/Sierra-mixedConifer-data/CA_Sierra_harvest_1901_2000_landuse_220425.nc"
+hvst_in = nc_open(in_path)
+hv1     = ncvar_get(hvst_in,"HARVEST_VH1")
+hv1_1   = raster(t(hv1[,,1]),xmn=min(reg_lon), xmx=max(reg_lon), ymn=min(reg_lat), ymx=max(reg_lat),
+                 crs = CRS("EPSG:4326"))
+hv1_1 = flip(hv1_1,direction="y")
+dim_t   = dim(hv1)[3]
+hvst_wrf = array(data=NA,c(147,151,dim_t))
+
+###resample mask to the WRF-alike raster
+resamp_ngb = resample(hv1_1, wrf_rs, method="ngb") 
+resamp_ngb[is.na(resamp_ngb)] = 0
+plot(resamp_ngb)
+
+
+hvst_df = as.data.frame(resamp_ngb,xy=TRUE)
+
+wrf_qry        = wrf_df %>% dplyr::select(x_vec,y_vec,cellid)
+wrf_qry$hvst   = 0
+
+nn_pt        = RANN::nn2(hvst_df[,1:2],wrf_qry[,1:2],k=1) 
+wrf_qry$id   = as.vector(nn_pt$nn.idx) 
+wrf_qry$dist = as.vector(nn_pt$nn.dists)
+
+for (t in sequence(dim_t)){
+  hvst_now = raster(t(hv1[,,t]),xmn=min(reg_lon), xmx=max(reg_lon), ymn=min(reg_lat), ymx=max(reg_lat),
+                    crs = CRS("EPSG:4326"))
+  hvst_now  = flip(hvst_now)
+  resmp_now = resample(hvst_now, wrf_rs, method="ngb") 
+  resmp_now[is.na(resmp_now)] = 0
+  df_now    = as.data.frame(resmp_now,xy=TRUE)
+  qry_now   = wrf_qry
+  qry_now   = qry_now %>% mutate(hvst = df_now$layer[id])
+  hvst_wrf[,,t]  = array(data = qry_now$hvst,c(147,151))
+  
+}
+
+
+xx  = ncdim_def( name="lon"   ,units="",vals= sequence(dim(XLONG)[1])        ,create_dimvar=FALSE)
+yy  = ncdim_def( name="lat"   ,units="",vals= sequence(dim(XLONG)[2])        ,create_dimvar=FALSE)
+tt  = ncdim_def( name="time"  ,units="",vals=sequence(dim_t)                 ,create_dimvar=FALSE)
+nc_xy  = list   (xx,yy)
+nc_xyt = list   (xx,yy,tt)
+nc_t   = list   (tt)
+xy     = c(dim(XLONG)[1],dim(XLONG)[2])
+xyt    = c(dim(XLONG)[1],dim(XLONG)[2],length(time_val))
+file_name = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data/sierra-harvest_1901-2000-landuse_20240322.nc")
+nc_vlist        = list()
+nc_vlist$LONGXY = ncvar_def(  name      = "LONGXY"
+                              , units    = "degrees_east"
+                              , dim      = nc_xy
+                              , missval  = undef
+                              , longname = "longitude"
+)#end ncvar_def
+nc_vlist$LATIXY = ncvar_def( name       = "LATIXY"
+                             , units    = "degrees_north"
+                             , dim      = nc_xy
+                             , missval  = undef
+                             , longname = "latitude"
+)#end ncvar_def
+nc_vlist$time   = ncvar_def( name       = "time"
+                             , units    = "years since 1900"
+                             , dim      = nc_t
+                             , missval  = undef
+                             , longname = "observation time"
+)#end ncvar_def
+nc_vlist$lnfm   = ncvar_def( name       = "HARVEST_VH1"
+                             , units    = "unitless"
+                             , dim      = nc_xyt
+                             , missval  = undef
+                             , longname = "harvest from primary forest"
+)#end ncvar_def
+
+### define global attributes
+
+att_template = list( title            = "To be replaced when looping through months"
+                     , date_created   = paste0(as.character(now(tzone="UTC")), "UTC")
+                     , source_code    = "sn-region-domain-surf-data.R"
+                     , code_notes     = "prescribed ignition for Sierra region on WRF domain "
+                     , code_developer = paste0( author_name
+                                                ," <"
+                                                , author_email
+                                                ,">"
+                     )#end paste0
+                     , file_author    = paste0(author_name," <",author_email,">")
+)#end list
+
+nc_new <- nc_create(filename=file_name,vars=nc_vlist,verbose=FALSE)
+dummy = ncvar_put(nc=nc_new,varid="LONGXY",vals=array(data=x_vec,dim=xy))
+dummy = ncvar_put(nc=nc_new,varid="LATIXY", vals=array(data=y_vec, dim=xy))
+dummy = ncvar_put(nc=nc_new, varid ="time", vals=sequence(dim_t))
+dummy = ncvar_put(nc=nc_new, varid ="HARVEST_VH1",vals=hvst_wrf)
+
+nc_title   = "Prescribed harvest for Sierra region on WRF domain "
+att_global = modifyList( x = att_template, val = list( title = nc_title ))
+
+
+# Loop through global attributes
+for (l in seq_along(att_global)){
+  # Current attribute information
+  att_name  = names(att_global)[l]
+  att_value = att_global[[l]]
+  
+  # Add attribute 
+  dummy = ncatt_put(nc=nc_new,varid=0,attname=att_name,attval=att_value)
+}#end for (l in seq_along(att_global))
+nc_close(nc_new)
+
