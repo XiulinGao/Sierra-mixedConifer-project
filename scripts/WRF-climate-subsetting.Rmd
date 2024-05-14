@@ -1,0 +1,512 @@
+---
+title: "WRF-climate-subsetting"
+author: "Xiulin Gao"
+date: "May-13-2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(ncdf4)
+library(lubridate)
+library(tidyverse)
+library(stars)
+library(foreach)
+library(parallel)
+library(iterators)
+library(doParallel)
+library(data.table)
+
+```
+
+
+
+```{r path setting}
+
+in_path    = file.path('/glade/work/xiugao/fates-input/ca-wrf-grassland/CLM1PT_data')
+out_path   = file.path('/glade/work/xiugao/fates-input/CZ2/CLM1P_data')
+wrfxy_path = file.path(in_path,'1981-01.nc')
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r author and site information}
+
+author_name   <- "Xiulin Gao"
+author_email  <- "xiulingao@lbl.gov"
+datprov_name  <- "Stefan Rahimi"
+datprov_email <- "s.rahimi@ucla.edu"
+data_usage_notes = paste0( " If you plan to use these data for any scientific analysis,"
+                           , " you should contact the data provider first and ask for permission"
+                           , " to use the data and check with them how to acknowledge their"
+                           , " contribution (including, but not limited to offer co-authorship)."
+)
+
+site_x      <- -120.966       #has to be negative
+site_y      <- 38.4309
+xid         <- "CZ2"
+reg_desc    <- "California Critical Zone 2"
+dat_version <- "v1-1"
+site_refhgt <-   30
+dxy         <-   1
+undef       <- -9999.0000
+
+
+```
+
+
+
+
+
+```{r site and WRF Lon and Lat}
+targ_xy  = data.frame(site_x, site_y)
+
+wrf_dim  = nc_open(wrfxy_path)
+wrf_x    = ncvar_get(wrf_dim,"LONGXY")
+wrf_y    = ncvar_get(wrf_dim,"LATIXY")
+x_vec    = as.vector(wrf_x)
+y_vec    = as.vector(wrf_y)
+wrf_xy   = data.frame(x_vec,y_vec)
+
+```
+
+
+
+
+
+```{r find the nearest point}
+
+find_nnxy = function(targ,ref){
+  nn_pt = RANN::nn2(ref[,1:2],targ[,1:2],k=1)
+  nn_idx = as.vector(nn_pt$nn.idx)
+  ref_xy = ref[nn_idx,]
+  return(ref_xy)
+}
+
+nn_wrf = find_nnxy(targ_xy,wrf_xy)
+wrf_nnidx1 = which(wrf_x==nn_wrf$x_vec,arr.ind=TRUE)
+wrf_nnidx2 = which(wrf_y==nn_wrf$y_vec,arr.ind=TRUE)
+sprintf("nearest point indices found in WRF is %s and %s", wrf_nnidx1[1:2], wrf_nnidx1[1:2])
+
+wrf_nnidx = wrf_nnidx1
+
+```
+
+
+
+
+
+```{r define constant variables}
+
+a_2_hPa  = 0.01     ; hPa_2_Pa  = 1. / Pa_2_hPa
+Pa_2_kPa = 0.001     ; kPa_2_Pa  = 1. / Pa_2_kPa
+K_2_degC  = -273.15  ; degC_2_K  = - K_2_degC
+kg_2_g    = 1000.    ; g_2_kg    = 1. / kg_2_g
+sec_2_hr  = 1./3600. ; hr_2_sec  = 1. / sec_2_hr
+sec_2_hhr = sec_2_hr*2.0
+sec_2_day = 1./86400.; day_2_sec = 1. / sec_2_day
+frac_2_pc = 100.     ; pc_2_frac = 1. / frac_2_pc
+
+# Molar mass of water vapour [kg/mol]
+mm_h2o  = 0.01801505
+# Molar mass of dry air [kg/mol]
+mm_dry  = 0.02897
+# Molar mass ratio
+eps_mol = mm_h2o / mm_dry
+# Saturation vapour pressure at 273.15K [Pa]
+esat_0C = 611.65685464
+
+```
+
+
+
+
+
+
+```{r define observation height}
+
+# Create a dummy time series for height
+zbot_fun = function(df){
+  if (! ("ZBOT" %in% names(df)) ){
+   df = df %>% mutate(ZBOT = 0. * TBOT + site_refhgt)
+  }#end if (! ("ZBOT" %in% names(df)) )
+  return(df$ZBOT)
+  }
+
+```
+
+
+
+
+
+```{r edge information}
+
+outprec = -floor(log10(dxy*0.01))
+
+# Standardise coordinates (and make sure latitude cannot exceed the poles).
+outlon  = round(site_x,outprec) #%% 360.
+outlat  = max(-90,min(90-0.5*dxy,round(site_y,outprec)))
+
+# Find edges.
+edge_w = (outlon - 0.5 * dxy) #%% 360.
+edge_e = (outlon + 0.5 * dxy) #%% 360.
+edge_s = outlat - 0.5 * dxy
+edge_n = outlat + 0.5 * dxy
+
+```
+
+
+
+```{r WRF driver variables}
+
+wrf_files = list.files(in_path)
+nc_conn  = nc_open(file.path(in_path,wrf_files[1]))
+nc_nvars = nc_conn$nvars
+wrf_vlist = rep(NA_character_,times=nc_nvars)
+for (v in sequence(nc_nvars)) wrf_vlist[v] = nc_conn$var[[v]]$name
+dummy = nc_close(nc_conn)
+
+```
+
+
+
+
+
+```{r FATES drivers}
+
+n       = 0
+varinfo = list()
+n       = n + 1
+varinfo[[n]] = list( vfates = "PSRF"
+                   , vlname = "surface pressure at the tower"
+                   , vunits = "Pa"
+                   , vinput = "PA_F"
+                   , add0   = 0.
+                   , mult   = kPa_2_Pa
+                   )#end list
+n       = n + 1
+varinfo[[n]] = list( vfates = "TBOT"
+                   , vlname = "temperature at the tower"
+                   , vunits = "K"
+                   , vinput = "TA_F"
+                   , add0   = degC_2_K
+                   , mult   = 1.
+                   )#end list
+n       = n + 1
+varinfo[[n]] = list( vfates = "QBOT"
+                  , vlname = "specific humidity at the tower"
+                  , vunits = "kg/kg"
+                  , vinput = "QBOT"
+                  , add0   = 0.
+                  , mult   = 1.
+                  )#end list
+n       = n + 1
+varinfo[[n]] = list( vfates = "RH"
+                   , vlname = "relative humidity at the tower"
+                   , vunits = "%"
+                   , vinput = "RH_F"
+                   , add0   = 0.
+                   , mult   = 1.
+                   )#end list
+
+n       = n + 1
+varinfo[[n]] = list( vfates = "WIND"
+                   , vlname = "wind at the tower"
+                   , vunits = "m/s"
+                   , vinput = "WS_F"
+                   , add0   = 0.
+                   , mult   = 1.
+                   )#end list
+n       = n + 1
+varinfo[[n]] = list( vfates = "FSDS"
+                   , vlname = "incident solar radiation at the tower"
+                   , vunits = "W/m2"
+                   , vinput = "SW_IN_F"
+                   , add0   = 0.
+                   , mult   = 1.
+                   )#end list
+n       = n + 1
+varinfo[[n]] = list( vfates = "PRECTmms"
+                   , vlname = "precipitation rate at the tower"
+                   , vunits = "mm/s"
+                   , vinput = "P_F"
+                   , add0   = 0.
+                   , mult   = sec_2_hr
+                   )#end list
+# Longwave radiation. Comment the lines below in case the variable is not available.
+n       = n + 1
+varinfo[[n]] = list( vfates = "FLDS"
+                   , vlname = "incident long wave radiation at the tower"
+                   , vunits = "W/m2"
+                   , vinput = "LW_IN_F"
+                   , add0   = 0.
+                   , mult   = 1.
+                   )#end list
+
+# Convert varinfo to a "tibble" object
+varinfo  = do.call(what=rbind,args=lapply(X=varinfo,FUN=as_tibble,stringsAsFactors=FALSE))
+
+```
+
+
+
+
+
+```{r global attribute}
+
+developer_name  = c( 111L, 103L, 110L, 111L,  76L,  32L, 115L, 111L,  99L, 114L,  97L,  77L)
+developer_email = c( 118L, 111L, 103L,  46L, 108L,  98L, 108L,  64L, 111L, 103L, 110L, 111L
+                   , 108L, 109L)
+
+
+# Define the template.  We will update the title in each time step.
+att_template = list( title          = "To be replaced when looping through months"
+                   , version        = dat_version
+                   , date_created   = paste0(as.character(now(tzone="UTC")), "UTC")
+                   , source_code    = "WRF-climate-subsetting.Rmd"
+                   , code_notes     = "Meteorological drivers compatible with ELM-FATES and CLM-FATES"
+                   , code_developer = paste0( intToUtf8(rev(developer_name))
+                                            ," <"
+                                            , intToUtf8(rev(developer_email))
+                                            ,">"
+                                            )#end paste0
+                   , file_author    = paste0(author_name," <",author_email,">")
+                   , data_provider  = paste0(datprov_name," <",datprov_email,">")
+                   , usage_notes    = data_usage_notes
+                   )#end list
+
+```
+
+
+
+```{r output path }
+# Path to where we will write the drivers.
+metd_path = file.path(out_path,"CLM1PT_data")
+dummy = dir.create(path=metd_path  ,showWarnings=FALSE,recursive=TRUE)
+
+```
+
+
+
+```{r slice data}
+
+n_file = length(wrf_files)
+for (f in sequence(n_file)){
+  file_now = wrf_files[f]
+  path_now = file.path(in_path,file_now)
+  nc_now   = nc_open(path_now)
+  times    = ncvar_get(nc_now,"time")
+  unit_now = ncatt_get(nc_now,"time")$units
+  dim_t    = length(times)
+  df_now   = as_tibble( matrix( data     = NA_real_
+                              , nrow     = dim_t
+                              , ncol     = nc_nvars-2
+                              , dimnames = list(NULL,wrf_vlist[3:nc_nvars])
+                         )
+                 )
+
+ for( v in sequence(nc_nvars-2)){
+   var_now = wrf_vlist[v+2]
+   val_now = ncvar_get(nc_now,var_now)
+   val_now = val_now[wrf_nnidx[1],wrf_nnidx[2],]
+   df_now[[var_now]] = val_now
+ } 
+  
+   ## add RH
+      if ("QBOT" %in% names(df_now)){
+   # Specific humidity already in the meteorological driver, find relative humidity.
+   cat(" - Specific humidity included in the input data. Find relative humidity")
+   df_now = df_now %>% 
+               mutate( EBOT = PSRF * QBOT / (eps_mol + (1. - eps_mol) * QBOT)
+                     , ESAT = esat_0C * exp( 17.67 * (TBOT - degC_2_K) / (TBOT - 29.65))
+                     , RH   = frac_2_pc * EBOT / ESAT
+                     ) %>% select(! c(EBOT,ESAT))
+}else if("RH" %in% names(df_now)){
+   # Find specific humidity from vapour pressure
+   df_now = df_now %>%
+               mutate( ESAT = esat_0C * exp( 17.67 * (TBOT - degC_2_K) / (TBOT - 29.65))
+                     , EBOT = pc_2_frac * RH * ESAT
+                     , QBOT = eps_mol * EBOT / (PSRF - (1. - eps_mol) * EBOT)
+                     ) %>% select(! c(ESAT,EBOT))
+}else if ("EBOT" %in% names(df_now)){
+   # Find specific humidity from vapour pressure
+   df_now = df_now %>%
+               mutate( QBOT = eps_mol * EBOT / (PSRF - (1. - eps_mol) * EBOT)
+                     , ESAT = esat_0C * exp( 17.67 * (TBOT - degC_2_K) / (TBOT - 29.65))
+                     , RH   = frac_2_pc * EBOT / ESAT
+                     ) %>% select(! c(ESAT))
+}else{
+   # Find specific humidity from mixing ratio
+  df_now = df_now %>%
+               mutate( QBOT = RBOT / (1. + RBOT)
+                     , EBOT = PSRF * QBOT / (eps_mol + (1. - eps_mol) * QBOT)
+                     , ESAT = esat_0C * exp( 17.67 * (TBOT - degC_2_K) / (TBOT - 29.65))
+                     , RH   = frac_2_pc * EBOT / ESAT
+                     ) %>% select(! c(EBOT,ESAT))
+}
+  
+
+  ## add observation height
+   df_now$ZBOT = zbot_fun(df_now)
+
+## write out file 
+   nc_base = file_now
+   year_now = substr(nc_base,1,4)
+   month_now = substr(nc_base,6,7)
+   when_lab = sprintf("%s-%s",year_now,month_now)
+   nc_file = file.path(metd_path,nc_base)
+   cat(" + Write output for ",when_lab," (",nc_base,").\n",sep="")
+   
+   xx  = ncdim_def( name="lon"   ,units="",vals=1L               ,create_dimvar=FALSE)
+   yy  = ncdim_def( name="lat"   ,units="",vals=1L               ,create_dimvar=FALSE)
+   tt  = ncdim_def( name="time"  ,units="",vals=seq_along(times) ,create_dimvar=FALSE)
+   ss  = ncdim_def( name="scalar",units="",vals=1L               ,create_dimvar=FALSE)
+
+# List of dimensions, useful for setting variables.   
+   nc_xy  = list   (xx,yy)
+   nc_xyt = list(xx,yy,tt)
+   nc_t   = list      (tt)
+   nc_s   = list(ss)
+   xy     = c(1,1)
+   xyt    = c(1,1,dim_t)
+
+   # Start list with variables. First we put the coordinates
+   nc_vlist        = list()
+   nc_vlist$LONGXY = ncvar_def( name     = "LONGXY"
+                              , units    = "degrees_east"
+                              , dim      = nc_xy
+                              , missval  = undef
+                              , longname = "longitude"
+                              )#end ncvar_def
+   nc_vlist$LATIXY = ncvar_def( name     = "LATIXY"
+                              , units    = "degrees_north"
+                              , dim      = nc_xy
+                              , missval  = undef
+                              , longname = "latitude"
+                              )#end ncvar_def
+   nc_vlist$EDGEW  = ncvar_def( name     = "EDGEW"
+                              , units    = "degrees_east"
+                              , dim      = nc_s
+                              , missval  = undef
+                              , longname = "western edge in atmospheric data"
+                              )#end ncvar_def
+   nc_vlist$EDGEE  = ncvar_def( name     = "EDGEE"
+                              , units    = "degrees_east"
+                              , dim      = nc_s
+                              , missval  = undef
+                              , longname = "eastern edge in atmospheric data"
+                              )#end ncvar_def
+   nc_vlist$EDGES  = ncvar_def( name     = "EDGES"
+                              , units    = "degrees_north"
+                              , dim      = nc_s
+                              , missval  = undef
+                              , longname = "southern edge in atmospheric data"
+                              )#end ncvar_def
+   nc_vlist$EDGEN  = ncvar_def( name     = "EDGEN"
+                              , units    = "degrees_north"
+                              , dim      = nc_s
+                              , missval  = undef
+                              , longname = "northern edge in atmospheric data"
+                              )#end ncvar_def
+   nc_vlist$time   = ncvar_def( name     = "time"
+                              , units    = unit_now
+                              , dim      = nc_t
+                              , missval  = undef
+                              , longname = "WRF model time"
+                              )#end ncvar_def
+
+   # Loop through FATES met drivers, add them   
+   for (v in seq_along(varinfo[[1]])){
+      # Handy shorter names
+      v_vfates = varinfo$vfates[v]
+      v_vlname = varinfo$vlname[v]
+      v_vunits = varinfo$vunits[v]
+
+      #Add variable information
+      nc_vlist[[v_vfates]] = ncvar_def( name     = v_vfates
+                                      , units    = v_vunits
+                                      , dim      = nc_xyt
+                                      , missval  = undef
+                                      , longname = v_vlname
+                                      )#end ncvar_def
+   }#end for (v in seq_along(varinfo[[1]]))
+
+   # Create file
+   nc_conn = nc_create(filename=nc_file,vars=nc_vlist,verbose=FALSE)
+
+   #---~---
+   # Put coordinates, tower height and attributes to the netcdf
+   #---~---
+   # Longitude, append time-invariant tag
+   dummy = ncvar_put(nc=nc_conn,varid="LONGXY",vals=array(data=outlon     ,dim=xy))
+   dummy = ncatt_put(nc=nc_conn,varid="LONGXY",attname="mode"    ,attval="time-invariant")
+   # Latitude, append time-invariant tag
+   dummy = ncvar_put(nc=nc_conn,varid="LATIXY",vals=array(data=outlat     ,dim=xy))
+   dummy = ncatt_put(nc=nc_conn,varid="LATIXY",attname="mode"    ,attval="time-invariant")
+   # Western edge, append time-invariant tag
+   dummy = ncvar_put(nc=nc_conn,varid="EDGEW" ,vals=edge_w)
+   dummy = ncatt_put(nc=nc_conn,varid="EDGEW" ,attname="mode"    ,attval="time-invariant")
+   # Eastern edge, append time-invariant tag
+   dummy = ncvar_put(nc=nc_conn,varid="EDGEE" ,vals=edge_e)
+   dummy = ncatt_put(nc=nc_conn,varid="EDGEE" ,attname="mode"    ,attval="time-invariant")
+   # Southern edge, append time-invariant tag
+   dummy = ncvar_put(nc=nc_conn,varid="EDGES" ,vals=edge_s)
+   dummy = ncatt_put(nc=nc_conn,varid="EDGES" ,attname="mode"    ,attval="time-invariant")
+   # Northern edge, append time-invariant tag
+   dummy = ncvar_put(nc=nc_conn,varid="EDGEN" ,vals=edge_n)
+   dummy = ncatt_put(nc=nc_conn,varid="EDGEN" ,attname="mode"    ,attval="time-invariant")
+   # Time, append calendar type.
+   dummy = ncvar_put(nc=nc_conn,varid="time"  ,vals=times)
+   dummy = ncatt_put(nc=nc_conn,varid="time"  ,attname="calendar",attval="noleap") # if gregorian change to "gregorian"
+   #---~---
+
+   # Put variables to the netcdf
+   for (v in seq_along(varinfo[[1]])){
+      # Handy shorter names
+      v_vfates = varinfo$vfates[v]
+      v_vlname = varinfo$vlname[v]
+      v_vunits = varinfo$vunits[v]
+
+      #Add variable information
+      dummy = ncvar_put( nc    = nc_conn
+                       , varid = v_vfates
+                       , vals  = array(data=df_now[[v_vfates]],dim=xyt)
+                       )#end ncvar_put
+
+      #Add attribute to highlight this is time-dependent
+      dummy = ncatt_put( nc      = nc_conn
+                       , varid   = v_vfates
+                       , attname = "mode"
+                       , attval  = "time-dependent")
+   }#end for (v in seq_along(varinfo[[1]]))
+
+   # Add title specific for this month/year.
+   nc_title   = paste0( "Meteorological forcing for ",site_desc
+                      , "(",month.abb[month_now]," ",year_now,")"
+                      )#end paste0
+   att_global = modifyList( x = att_template, val = list( title = nc_title ))
+
+   
+   # Loop through global attributes
+   for (l in seq_along(att_global)){
+      # Current attribute information
+      att_name  = names(att_global)[l]
+      att_value = att_global[[l]]
+
+      # Add attribute 
+      dummy = ncatt_put(nc=nc_conn,varid=0,attname=att_name,attval=att_value)
+   }#end for (l in seq_along(att_global))
+
+
+   # Close the file
+   dummy = nc_close(nc_conn)
+}#end for (m in sequence(nmet))
+  
+}
+
+```
+
