@@ -245,7 +245,16 @@ varinfo[[n]] = list( vfates = "FLDS"
                    , vinput = "LW_IN_F"
                    , add0   = 0.
                    , mult   = 1.
-                   )#end list
+                   )
+# Tower height 
+n       = n + 1
+varinfo[[n]] = list( vfates = "ZBOT"
+                   , vlname = "observational height"
+                   , vunits = "m"
+                   , vinput = "ZBOT"
+                   , add0   = 0.
+                   , mult   = 1.)#end list
+
 
 # Convert varinfo to a "tibble" object
 varinfo  = do.call(what=rbind,args=lapply(X=varinfo,FUN=as_tibble,stringsAsFactors=FALSE))
