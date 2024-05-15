@@ -345,8 +345,8 @@ for (f in sequence(n_file)){
 
 ## write out file 
    nc_base = file_now
-   year_now = substr(nc_base,1,4)
-   month_now = substr(nc_base,6,7)
+   year_now = as.numeric(substr(nc_base,1,4))
+   month_now = as.numeric(substr(nc_base,7,7))
    when_lab = sprintf("%s-%s",year_now,month_now)
    nc_file = file.path(metd_path,nc_base)
    cat(" + Write output for ",when_lab," (",nc_base,").\n",sep="")
