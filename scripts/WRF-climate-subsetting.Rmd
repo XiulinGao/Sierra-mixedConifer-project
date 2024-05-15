@@ -36,10 +36,10 @@ You can also embed plots, for example:
 
 ```{r author and site information}
 
-author_name   <- "Xiulin Gao"
-author_email  <- "xiulingao@lbl.gov"
-datprov_name  <- "Stefan Rahimi"
-datprov_email <- "s.rahimi@ucla.edu"
+author_name   <- c(88L,105L,117L,108L,105L,110L,32L,71L,97L,111L)
+author_email  <- c(120L,105L,117L,108L,105L,110L,103L,97L,111L,64L,108L,98L,108L,46L,103L,111L,118L)
+datprov_name  <- c(83L,116L,101L,102L,97L,110L,32L,82L,97L,104L,105L,109L,105L)
+datprov_email <- c(115L,114L,97L,104L,105L,109L,105L,64L,117L,119L,121L,111L,46L,101L,100L,117L)
 data_usage_notes = paste0( " If you plan to use these data for any scientific analysis,"
                            , " you should contact the data provider first and ask for permission"
                            , " to use the data and check with them how to acknowledge their"
@@ -274,8 +274,8 @@ att_template = list( title          = "To be replaced when looping through month
                                             , intToUtf8(rev(developer_email))
                                             ,">"
                                             )#end paste0
-                   , file_author    = paste0(author_name," <",author_email,">")
-                   , data_provider  = paste0(datprov_name," <",datprov_email,">")
+                   , file_author    = paste0(intToUtf8(author_name)," <",intToUtf8(author_email),">")
+                   , data_provider  = paste0(intToUtf8(datprov_name)," <",intToUtf8(datprov_email),">")
                    , usage_notes    = data_usage_notes
                    )#end list
 
