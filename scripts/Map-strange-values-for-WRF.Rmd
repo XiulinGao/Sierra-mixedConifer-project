@@ -1,0 +1,198 @@
+---
+title: "Map-strange-values-for-WRF"
+author: "Xiulin Gao"
+date: "2024-05-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(raster)
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(stars)
+library(ncdf4)
+
+```
+
+
+
+
+```{r path}
+
+main_path = file.path("/glade/work/xiugao/fates-input/ca-wrf-grassland/CLM1PT_data")
+out_path  = file.path("/glade/derecho/scratch/xiugao")
+plot_path = file.path("~/Sierra-mixedConifer-project/data")
+files     = list.files(main_path,pattern="\\.nc$")
+nfiles    = length(files)
+
+wrf_df    = nc_open(file.path(main_path,files[1]))
+wrf_x     = ncvar_get(wrf_df,"LONGXY")
+wrf_y     = ncvar_get(wrf_df,"LATIXY")
+lon_v     = as.vector(wrf_x)
+lat_v     = as.vector(wrf_y)
+lon       = rep(lon_v,times = nfiles)
+lat       = rep(lat_v,times = nfiles)
+
+```
+
+
+
+```{r plot setting}
+
+gg_device  = c("png")     
+gg_depth   = 600        
+gg_ptsz    = 18          
+gg_ptszl   = 26
+gg_width   = 17.5         
+gg_widthn  = 14.5
+gg_height  = 8.5         
+gg_units   = "in"       
+gg_screen  = TRUE        
+gg_tfmt    = "%Y"         
+ndevice = length(gg_device)
+
+## map setting
+ca_co     = USAboundaries::us_counties(resolution = "high", states = "CA")
+wgs = "+init=EPSG:4326"
+
+
+```
+
+
+```{r count strange values function}
+
+na_check = function(path,var){
+  df   = nc_open(path)
+  var_df   = ncvar_get(df, var)
+  count_na = var_df
+  count_na[is.na(count_na)] = 1
+  count_na[!is.na(count_na)] = 0
+  num_na = apply(count_na,1:2,sum)
+  num_na = reshape2::melt(num_na)
+  colnames(num_na) = c("lon","lat",paste(var,"_NA"))
+  return(num_na)
+  
+}
+
+neg_check = function(path,var){
+  df        = nc_open(path)
+  var_df    = ncvar_get(df, var)
+  count_neg = var_df
+  count_neg[count_neg<0]  = 1
+  count_neg[count_neg>=0] = 0
+  num_neg = apply(count_neg,1:2,sum)
+  num_neg = reshape2::melt(num_neg)
+  colnames(num_neg) = c("lon","lat",paste(var,"_Neg"))
+  return(num_neg)
+}
+
+```
+
+
+
+
+
+```{r main}
+
+clim_vars = c("PSRF","TBOT","QBOT","RH","PRECTmms","FSDS","FLDS","WIND")
+nvar      = length(clim_vars)
+
+concat_df = NULL
+for (n in sequence(nvar)){
+  var_now = clim_vars[n]
+  df_now  = NULL
+  for(f in sequence(nfiles)){
+  f_now = files[f]
+  path_now = file.path(main_path,f_now)
+  na_df    = na_check(path_now,var_now)
+  neg_df   = neg_check(path_now,var_now)
+  df_temp  = na_df %>% left_join(neg_df,by=c("lon","lat"))
+  if(is.null(df_now)){df_now = df_temp}else{
+    df_now = rbind(df_now,df_temp)}
+  }
+  if(is.null(concat_df)){concat_df = df_now}else{
+  concat_df = concat_df %>% left_join(df_now,by=c("lon","lat"))}
+  }
+concat_df  = concat_df                    %>% 
+             mutate(lon = lon, lat = lat)
+#data.table::fwrite(concat_df,file.path(out_path,"wrf-value-check.csv"))
+
+```
+
+
+
+
+```{r map}
+
+concat_df   = concat_df                     %>% 
+              mutate(lon = round(lon,5),
+                     lat = round(lat,5))
+concat_df$lon_f = factor(concat_df$lon, levels = unique(concat_df$lon))
+concat_df$lat_f = factor(concat_df$lat, levels = unique(concat_df$lat))
+orig_xy         = concat_df %>% dplyr::select(lon,lat,lon_f,lat_f) %>% distinct()
+
+concat_df = concat_df                   %>% 
+            group_by(lon_f,lat_f)       %>% 
+            dplyr::select(-c(lon,lat))  %>% 
+            summarize_all(mean)         %>% 
+            ungroup()
+concat_df = orig_xy  %>%  left_join(concat_df, by=c("lon_f","lat_f")) %>% dplyr::select(-c(lon_f,lat_f))
+
+plots = list()
+plot_vars = names(concat_df)[3:ncol(concat_df)]
+npvar     = length(plot_vars)
+
+for(p in sequence(npvar)){
+  var_this = plot_vars[p]
+  df_this  = concat_df %>% dplyr::select(all_of(c("lon","lat",var_this)))
+  fil_var  = matrix(as.factor(df_this[[var_this]]), nrow=147,ncol=151)
+  x_arr    = matrix(df_this$lon,nrow=147,ncol=151)
+  y_arr    = matrix(df_this$lat,nrow=147,ncol=151)
+  wrf_star = st_as_stars(fil_var)
+  wrf_star = st_as_stars(wrf_star, curvilinear=list(X1=x_arr,X2=y_arr), crs=wgs)
+  wrf_sf   = st_as_sf(wrf_star,as_points=FALSE,na.rm=FALSE)
+   
+  gg_now = ggplot()
+  gg_now = gg_now + geom_sf(data=wrf_sf,aes(fill=A1),color=NA)
+  gg_now = gg_now + coord_sf(crs=st_crs(wgs)) 
+  gg_now = gg_now + scale_fill_manual(values=c("1"="lightblue","0"= "grey50"),
+                                      guide="colorbar") 
+  gg_now = gg_now + geom_sf(data = ca_co, color = alpha("black", alpha=1),lwd=0.1,fill=NA) 
+  gg_now = gg_now + scale_x_continuous(limits = c(-124.8, -114.0),expand = c(0,0))
+  gg_now = gg_now + scale_y_continuous(limits = c(32, 42.2),expand = c(0,0))
+  gg_now = gg_now + labs(title=var_this
+                         , x="Longitude"
+                         , y="Latitude")
+  gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size= 0.5,base_rect_size =0.5)
+  gg_now = gg_now + theme( legend.position   = "right" 
+                          , panel.background  = element_blank()
+                          , panel.border      = element_rect(linewidth = 1.6, fill=NA)
+                          , axis.text.x       = element_text( size   = gg_ptsz-5
+                                                           , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+                          , axis.text.y       = element_text( size   = gg_ptsz-5
+                                                           , margin = unit(rep(0.35,times=4),"cm")
+                                                           )#end element_text
+                          , axis.ticks.length = unit(-0.25,"cm")
+                         )
+
+  for (d in sequence(ndevice)){
+    h_output = paste0(var_this,"_plot.",gg_device[d])
+    dummy    = ggsave( filename = h_output
+                     , plot     = gg_now
+                     , device   = gg_device[d]
+                     , path     = plot_path
+                     , width    = gg_widthn*0.6
+                     , height   = gg_height*0.6
+                     , units    = gg_units
+                     , dpi      = gg_depth
+                     )
+  }
+  plots[[p]] = gg_now
+}
+    
+if(gg_screen) plots
+
+```
+
