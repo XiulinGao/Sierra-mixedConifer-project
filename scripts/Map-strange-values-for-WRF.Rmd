@@ -67,8 +67,8 @@ na_check = function(path,var){
   df   = nc_open(path)
   var_df   = ncvar_get(df, var)
   count_na = var_df
-  count_na[is.na(count_na)] = 1
   count_na[!is.na(count_na)] = 0
+  count_na[is.na(count_na)]  = 1
   num_na = apply(count_na,1:2,sum)
   num_na = reshape2::melt(num_na)
   colnames(num_na) = c("lon","lat",paste(var,"_NA"))
@@ -80,8 +80,8 @@ neg_check = function(path,var){
   df        = nc_open(path)
   var_df    = ncvar_get(df, var)
   count_neg = var_df
-  count_neg[count_neg<0]  = 1
-  count_neg[count_neg>=0] = 0
+  count_neg[count_neg>=0]  = 0
+  count_neg[count_neg<0]   = 1
   num_neg = apply(count_neg,1:2,sum)
   num_neg = reshape2::melt(num_neg)
   colnames(num_neg) = c("lon","lat",paste(var,"_Neg"))
