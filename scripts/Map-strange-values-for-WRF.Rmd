@@ -136,7 +136,7 @@ orig_xy         = concat_df %>% dplyr::select(lon,lat,lon_f,lat_f) %>% distinct(
 concat_df = concat_df                   %>% 
             group_by(lon_f,lat_f)       %>% 
             dplyr::select(-c(lon,lat))  %>% 
-            summarize_all(mean)         %>% 
+            summarize_all(sum)          %>% 
             ungroup()
 concat_df = orig_xy  %>%  left_join(concat_df, by=c("lon_f","lat_f")) %>% dplyr::select(-c(lon_f,lat_f))
 
