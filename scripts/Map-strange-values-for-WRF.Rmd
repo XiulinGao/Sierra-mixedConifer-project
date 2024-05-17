@@ -32,8 +32,8 @@ wrf_x     = ncvar_get(wrf_df,"LONGXY")
 wrf_y     = ncvar_get(wrf_df,"LATIXY")
 lon_v     = as.vector(wrf_x)
 lat_v     = as.vector(wrf_y)
-lon       = rep(lon_v,times = nfiles)
-lat       = rep(lat_v,times = nfiles)
+lon_all      = rep(lon_v,times = nfiles)
+lat_all       = rep(lat_v,times = nfiles)
 
 ```
 
@@ -56,6 +56,9 @@ ndevice = length(gg_device)
 ## map setting
 ca_co     = USAboundaries::us_counties(resolution = "high", states = "CA")
 wgs = "+init=EPSG:4326"
+cols  = c("#0571B0","#92C5DE","#FFDCD1","#F4A582","#CA0020")
+
+mms_2_mmyear = 31536000
 
 
 ```
@@ -93,6 +96,26 @@ neg_check = function(path,var){
 
 
 
+```{r precipitation}
+
+precp_check = function(filename,var){
+    path      = file.path(main_path,filename)
+    df        = nc_open(path)
+    year_this = as.numeric(substr(filename, 1,4))
+    month_this= as.numeric(substr(filename,6,7))
+    var_df    = ncvar_get(df, var)
+    sum_df    = apply(var_df,1:2,sum)
+    sum_df    = reshape2::melt(sum_df)
+    colnames(sum_df) = c("lon","lat",paste(var,"_sum"))
+    sum_df    = sum_df %>% mutate(year = year_this, month=month_this)
+    return(sum_df)
+    dummy     = nc_close(df)
+}
+
+```
+
+
+
 
 ```{r main}
 
@@ -116,15 +139,36 @@ for (n in sequence(nvar)){
   concat_df = concat_df %>% left_join(df_now,by=c("lon","lat"))}
   }
 concat_df  = concat_df                    %>% 
-             mutate(lon = lon, lat = lat)
+             mutate(lon = lon_all, lat = lat_all)
 #data.table::fwrite(concat_df,file.path(out_path,"wrf-value-check.csv"))
+
+
+clim_vars = c("PRECTmms") 
+nvar      = length(clim_vars)
+
+concat_df = NULL
+for (n in sequence(nvar)){
+  var_now = clim_vars[n]
+  df_now  = NULL
+  for(f in sequence(nfiles)){
+  f_now = files[f]
+  sum_df= precp_check(f_now,var_now)
+  if(is.null(df_now)){df_now = sum_df}else{
+    df_now = rbind(df_now,sum_df)}
+  }
+  if(is.null(concat_df)){concat_df = df_now}else{
+  concat_df = concat_df %>% left_join(df_now,by=c("lon","lat"))}
+  }
+concat_df  = concat_df  %>% mutate(lon = lon_all, lat = lat_all)
+file_name  = paste0("wrf-",clim_vars[1],".csv")
+data.table::fwrite(concat_df,file.path(out_path,file_name))
 
 ```
 
 
 
 
-```{r map}
+```{r map strange values}
 
 concat_df   = concat_df                     %>% 
               mutate(lon = round(lon,5),
@@ -179,6 +223,84 @@ for(p in sequence(npvar)){
 
   for (d in sequence(ndevice)){
     h_output = paste0(var_this,"_plot.",gg_device[d])
+    dummy    = ggsave( filename = h_output
+                     , plot     = gg_now
+                     , device   = gg_device[d]
+                     , path     = plot_path
+                     , width    = gg_widthn*0.6
+                     , height   = gg_height*0.6
+                     , units    = gg_units
+                     , dpi      = gg_depth
+                     )
+  }
+  plots[[p]] = gg_now
+}
+    
+if(gg_screen) plots
+
+```
+
+
+
+
+```{r map precip}
+
+concat_df   = concat_df                     %>% 
+              mutate(lon = round(lon,5),
+                     lat = round(lat,5))
+concat_df$lon_f = factor(concat_df$lon, levels = unique(concat_df$lon))
+concat_df$lat_f = factor(concat_df$lat, levels = unique(concat_df$lat))
+orig_xy         = concat_df %>% dplyr::select(lon,lat,lon_f,lat_f) %>% distinct()
+
+concat_df = concat_df                         %>% 
+            group_by(lon_f,lat_f,year)        %>% 
+            dplyr::select(-c(lon,lat,month))  %>% 
+            summarize_all(sum)                %>% 
+            ungroup()                         %>% 
+            group_by(lon_f,lat_f)             %>% 
+            summarize_all(mean)               %>% 
+           # mutate(PRECTmms_sum = PRECTmms_sum*mms_2_mmyear ) %>% 
+            ungroup()                        
+concat_df = orig_xy  %>%  left_join(concat_df, by=c("lon_f","lat_f")) %>% dplyr::select(-c(lon_f,lat_f))
+
+  
+  fil_var  = matrix(concat_df$PRECTmms_sum, nrow=147,ncol=151)
+  x_arr    = matrix(concat_df$lon,nrow=147,ncol=151)
+  y_arr    = matrix(concat_df$lat,nrow=147,ncol=151)
+  wrf_star = st_as_stars(fil_var)
+  wrf_star = st_as_stars(wrf_star, curvilinear=list(X1=x_arr,X2=y_arr), crs=wgs)
+  wrf_sf   = st_as_sf(wrf_star,as_points=FALSE,na.rm=FALSE)
+  y         = unlist(concat_df %>% dplyr::select(PRECTmms_sum))
+  rng       = range(y, na.rm=TRUE)
+  qn        = quantile(y, c(0.25,0.95),na.rm=TRUE)
+  qn_rescle = scales::rescale(c(qn, range(y,na.rm=TRUE)))
+  brks      = c(0, seq(qn_rescle[1],qn_rescle[2],length.out=3),1)
+   
+  gg_now = ggplot()
+  gg_now = gg_now + geom_sf(data=wrf_sf,aes(fill=A1),color=NA)
+  gg_now = gg_now + coord_sf(crs=st_crs(wgs)) 
+  gg_now = gg_now + scale_fill_gradientn(colours=cols, guide="colorbar", na.value="white", 
+                                         values=brks, limits=rng,oob = scales::squish)  
+  gg_now = gg_now + geom_sf(data = ca_co, color = alpha("black", alpha=1),lwd=0.1,fill=NA) 
+  gg_now = gg_now + scale_x_continuous(limits = c(-124.8, -114.0),expand = c(0,0))
+  gg_now = gg_now + scale_y_continuous(limits = c(32, 42.2),expand = c(0,0))
+  gg_now = gg_now + labs(title="Precip (mm/s)"
+                         , x="Longitude"
+                         , y="Latitude")
+  gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size= 0.5,base_rect_size =0.5)
+  gg_now = gg_now + theme( legend.position   = "right" 
+                          , panel.background  = element_blank()
+                          , panel.border      = element_rect(linewidth = 1.6, fill=NA)
+                          , axis.text.x       = element_text( size   = gg_ptsz-5
+                                                           , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+                          , axis.text.y       = element_text( size   = gg_ptsz-5
+                                                           , margin = unit(rep(0.35,times=4),"cm")
+                                                           )#end element_text
+                          , axis.ticks.length = unit(-0.25,"cm")
+                         )
+
+  for (d in sequence(ndevice)){
+    h_output = paste0("Precip_plot.",gg_device[d])
     dummy    = ggsave( filename = h_output
                      , plot     = gg_now
                      , device   = gg_device[d]
