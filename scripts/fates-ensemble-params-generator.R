@@ -1,6 +1,10 @@
 #### FATES ensemble parameter sets generator ####
-### Author: Xiu Lin Gao ###
-### Date: 2024-07-07 ###
+# This script adapted approach from Marcos Longo 
+# and the Ensemble_FATES_Param.r script Marcos   
+# originally wrote. Although, we now also account 
+# for different PFT strategies by keeping difference in specific parameters among PFTs
+# Author: Xiu Lin Gao 
+# Date: 2024-07-07 
 
 
 ####   Reset R before running the script ####
