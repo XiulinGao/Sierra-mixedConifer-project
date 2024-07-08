@@ -1,4 +1,9 @@
-#   Reset R before running the script
+#### FATES ensemble parameter sets generator ####
+### Author: Xiu Lin Gao ###
+### Date: 2024-07-07 ###
+
+
+####   Reset R before running the script ####
 #---~---
 # Unload all packages
 suppressWarnings({
@@ -14,6 +19,7 @@ suppressWarnings({
 })#end suppressWarnings
 
 
+#### Path setting ####
 #---~---
 home_path      = path.expand("~")
 work_path      = file.path(home_path,"Documents","CA-grassland-simuDoc")
@@ -24,8 +30,9 @@ ncdf4_in_path  = file.path(home_path,"Documents","CA-grassland-simuDoc","ensembl
 ncdf4_in_base  = c("p61-tharps-refineN2T14.nc") #for parallel ensemble
 ncdf4_out_path = file.path(work_path,"EnsembleParamSet","sierra-test")
 ncdf4_out_pref = substr(ncdf4_in_base[1],1,3)
-n_pft=4
 
+#### Ensemble setting ####
+n_pft=4
 n_ensemble     = 180 
 tasks_per_node = 36  
 seed_init      = 6
@@ -33,6 +40,7 @@ lhs_eps        = 0.025
 lhs_maxIt      = 1000L
 verbose = FALSE
 
+#### Package loading and setting checks ####
 cat (" + Load packages.\n")
 fine.packages = c( ncdf4     = require(ncdf4    ,quietly=TRUE,warn.conflicts=FALSE)
                  , MASS      = require(MASS     ,quietly=TRUE,warn.conflicts=FALSE)
@@ -69,7 +77,7 @@ task_fmt     = paste0(  "Node%",node_digits,".", node_digits,"i"
                         ,"_Task%",task_digits,".",task_digits,"i"
 )
 
-
+#### LHS sampling ####
 if (file.exists(parset_file)){
   cat (" + Read parameter settings.\n")
   param_config        = read.csv(file=parset_file,header=TRUE,stringsAsFactors=FALSE)
@@ -265,7 +273,7 @@ add0        = as.data.frame(add0)
 mult        = as.data.frame(mult)
 param_table = add0 + mult * param_quant
 
-
+#### non-LHS sampling ####
 #---~---
 #   Generate parameters that are based on reference values from other PFTs .
 #---~---
@@ -323,7 +331,7 @@ for (r in sequence(nrow(param_table))){
 } #end of for(p in sequence(n_ref))
 } # end of for (r in sequence(nrow(param_table)))
 
-
+#### Gnerating parameter files ####
 #---~---
 #   Loop through all ensemble iterations to make NetCDF files
 #---~---
