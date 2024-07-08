@@ -304,7 +304,7 @@ for (r in sequence(nrow(param_table))){
       ref_val = param_table[[ref_col]][[r]]
       if(tag_min > ref_val | tag_max < ref_val){
         cat ("-------------------------------------------------------------------\n"       )
-        cat ("   Make sure lower and upper bounds are same for\"",param_now,"\"","and\"",ref_col,"\"\n")
+        cat ("   Make sure lower and upper bounds are same for\"",targ_col,"\"","and\"",ref_col,"\"\n")
         stop("range error for sampling")
       }
       else{
