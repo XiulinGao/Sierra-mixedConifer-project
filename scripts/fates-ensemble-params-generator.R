@@ -101,6 +101,7 @@ if (file.exists(parset_file)){
   #   Name for correlation matrix
   #---~---
   pft_suffix             = ifelse( test = (! param_config$pft_var) | param_config$all_pft 
+                                   , yes  = ""
                                    , no   = sprintf("_P%2.2i",param_config$pft)
   )#end ifelse
   organ_suffix           = ifelse( test = (! param_config$org_var) | param_config$all_org
@@ -284,12 +285,13 @@ param_table = add0 + mult * param_quant
 param_ref = param_config$corr_name[!param_config$lhs_spl]
 n_ref     = length(param_ref)
 param_pd  = matrix( data = NA_real_
-                    , nrow = n_ensemble
-                    , ncol = n_param_tol - n_param_lhs
-                    , byrow = TRUE
-                    , dimnames = list(NULL,param_ref))
+                  , nrow = n_ensemble
+                  , ncol = n_param_tol - n_param_lhs
+                  , byrow = TRUE
+                  , dimnames = list(NULL,param_ref))
 param_pd = as.data.frame(param_pd)
 param_table = cbind(param_table,param_pd)
+rm(param_pd)
   
 for (r in sequence(nrow(param_table))){
   for(p in sequence(n_ref)){
@@ -332,6 +334,12 @@ for (r in sequence(nrow(param_table))){
       }
       
     } #end of if(ineq=="fates_leaf_slamax")
+    
+    if(param_prefix == "fates_frag_maxdecomp"){
+      ref_col = "fates_frag_maxdecomp_O01"
+      ref_val = param_table[[ref_col]][[r]]
+      param_table[[targ_col]][[r]] = ref_val * tag_max
+    } # end of if(param_prefix == "fates_frag_maxdecomp")
 } #end of for(p in sequence(n_ref))
 } # end of for (r in sequence(nrow(param_table)))
 
@@ -409,7 +417,8 @@ for (e in sequence(n_ensemble)){
     #   Set indices for PFT and organs in case they are needed.
     #---~---
     if (p_pft_var) p_pft_idx = if(p_all_pft){sequence(dim(p_out_value)[1])}else{p_pft  }
-    if (p_org_var) p_org_idx = if(p_all_org){sequence(dim(p_out_value)[2])}else{p_organ}
+    if (p_org_var & !p_pft_var) p_org_idx = if(p_all_org){sequence(dim(p_out_value)[1])}else{p_organ}
+    if (p_org_var & p_pft_var)  p_org_idx = if(p_all_org){sequence(dim(p_out_value)[2])}else{p_organ}
     #---~---
     
     
@@ -421,7 +430,7 @@ for (e in sequence(n_ensemble)){
           ,sprintf("%g",signif(p_new_value,4)),").\n",sep="")
     }#end if (verbose)
     #---~---
-    if (p_org_var){
+    if (p_org_var & p_pft_var){
       #---~---
       #   PFT- and organ-specific parameter. Update only the sought PFTs and organs.
       #---~---
@@ -430,7 +439,7 @@ for (e in sequence(n_ensemble)){
       }
       
       #---~---
-    }else if (p_pft_var){
+    }else if (p_pft_var & !p_org_var){
       #---~---
       #   PFT-specific parameter. Update only the sought PFTs.
       #---~---
@@ -439,7 +448,15 @@ for (e in sequence(n_ensemble)){
       }
       
       #---~---
-    }else{
+    }else if (p_org_var & !p_pft_var){
+      #---~----
+      # organ-specific parameter. 
+      #---~---
+      p_out_value[p_org_idx] = p_new_value
+      
+    }
+    
+    else{
       #---~---
       #    Global value. We multiply the original value by 0 to preserve the
       # original dimensions.
