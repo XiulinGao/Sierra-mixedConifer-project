@@ -95,17 +95,34 @@ ca_co     = USAboundaries::us_counties(resolution = "high", states = "CA")
 
 ###plot to see how the active domain looks like
 
-ggplot()                                                                      + 
-geom_sf(data=wrf_sf,colour="grey50", aes(fill=A1),lwd=0)                      +
+plot = ggplot()                                                                      + 
+geom_sf(data=wrf_sf,colour="grey50", aes(fill=A1),lwd=0.5)                      +
 coord_sf(crs=st_crs(wrf_proj))                                                + 
 theme_bw() + theme(panel.ontop=TRUE, panel.background=element_blank())        +
 labs(x="",y="")                                                               +
 scale_fill_manual(values=c("1"="lightblue","0"= "grey50"),
                     guide="colorbar")                                         +
 geom_sf(data = ca_co, color = alpha("black", alpha=0.2),lwd=0.1,fill=NA)      +
-geom_point(aes(x=-120.9508,y=38.4133), colour=alpha("blue",0.6), size=0.2)
+geom_point(aes(x=-119.2566,y=37.0311), colour=alpha("blue",1), size=0.01)    +   #CZ2
+geom_point(aes(x=-119.1951,y=37.0674), colour=alpha("red",1), size=0.01)     +   #CZ3
+geom_point(aes(x=-120.6585,y=38.8959), colour=alpha("orange",1), size=0.01)  +   #Blodgett
+#geom_point(aes(x=-116.7717,y=33.8079), colour=alpha("pink",0.6), size=0.01)    +   #southern CA oak/pine forest
+geom_point(aes(x=-119.0227,y=36.9625), colour=alpha("black",1), size=0.01)   +   #Teakettle
+geom_point(aes(x=-119.9950,y=38.1753), colour=alpha("purple",1), size=0.01)  +   #Stanis-Tuolumne
+geom_point(aes(x=-118.7543,y=36.5886), colour=alpha("brown",1), size=0.01)   +   #Sequoia FFSS
+geom_point(aes(x=-118.7378,y=36.5621), colour=alpha("green",1), size=0.01)   +   #Sequoia Tharp's Creek
+#geom_point(aes(x=-119.7313,y=37.1088), colour=alpha("darkgreen",0.6), size=0.01) + #CZ1
+geom_point(aes(x=-119.006,y=37.0058), colour=alpha("maroon",1), size=0.01)       #NEON lower Teakettle
 
-
+ggsave( filename = "plot2.png"
+        , plot     = plot
+        , device   = gg_device[1]
+        , path     = file.path("~/Desktop/")
+        , width    = gg_widthn
+        , height   = gg_height*0.8
+        , units    = gg_units
+        , dpi      = gg_depth
+)
 ####create the mask NetCDF file
 land_mask  = array(wrf_qry$mask,dim=c(147,151))
 land_mkdif = land_mask
@@ -203,11 +220,12 @@ ref_sand   = ncvar_get(ref_surf,"PCT_SAND")
 ref_clay   = ncvar_get(ref_surf,"PCT_CLAY")
 ref_color  = ncvar_get(ref_surf,"SOIL_COLOR")
 ref_org    = ncvar_get(ref_surf,"ORGANIC")
+ref_zbed   = ncvar_get(ref_surf,"zbedrock")
 
-ref_xy    = as.data.frame(cbind(as.vector(ref_x),as.vector(ref_y)))
+ref_xy    = as.data.frame(cbind(as.vector(ref_arrayx),as.vector(ref_arrayy)))
 dummy = nc_close(ref_surf)
 
-newsurf_name = "wrf-sn-surfdata_20240316.nc"
+newsurf_name = "wrf-sn-surfdata_20240521.nc"
 file.copy(from = sub_path, to = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name),overwrite=TRUE)
 newsurf = file.path("~/Google Drive/My Drive/Sierra-mixedConifer-data",newsurf_name)
 nc_copy = nc_open(newsurf,write=TRUE)
@@ -225,6 +243,7 @@ for (n in sequence(nsub)){
   dummy   = ncvar_put(nc_copy, varid="PCT_SAND",  vals = ref_sand[ref_idx[1,1],ref_idx[1,2],],  start=c(sub_idx[1],sub_idx[2],1),count=c(1,1,10))
   dummy   = ncvar_put(nc_copy, varid="PCT_CLAY",  vals = ref_clay[ref_idx[1,1],ref_idx[1,2],],  start=c(sub_idx[1],sub_idx[2],1),count=c(1,1,10))
   dummy   = ncvar_put(nc_copy, varid="SOIL_COLOR",vals = ref_color[ref_idx[1,1],ref_idx[1,2]],  start=c(sub_idx[1],sub_idx[2]),count=c(1,1))
+  dummy   = ncvar_put(nc_copy, varid="zbedrock", vals = ref_zbed[ref_idx[1,1],ref_idx[1,2]],   start=c(sub_idx[1],sub_idx[2]),count=c(1,1))
   dummy   = ncvar_put(nc_copy, varid="ORGANIC",  vals = ref_org[ref_idx[1,1],ref_idx[1,2],],    start=c(sub_idx[1],sub_idx[2],1),count=c(1,1,10))
 }
 

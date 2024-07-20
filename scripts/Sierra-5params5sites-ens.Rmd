@@ -35,12 +35,12 @@ invisible(gc())
 
 ```{r, label="path"}
 home_path   = path.expand("~")
-main_path   = file.path("/Volumes/Ldian/FATES/sierra-refine/fireon")
+main_path   = file.path("/Volumes/Ldian/FATES/sierra-refine0716/fireoff")
 #fireon_path = file.path(main_path,"fireon-site/2022-11-02")
 util_path   = file.path(home_path,"Util/RUtils")
 
-ens_cases  = c("cz2-p61-finetune.nc",
-               "tharp-p61-finetune.nc"
+ens_cases  = c("cz2-p61-fireoff-tuneFir.nc",
+               "tha-p61-fireoff-tuneFir.nc"
                )
 
 case_files  = file.path(main_path,ens_cases)
@@ -48,11 +48,11 @@ ncase       = length(ens_cases)
 case_names  = c(1L,2L)
 
 case_desc   =   c(
-                  "p61-cz2",
-                  "p61-tha"
+                  "p61-refine-cz2",
+                  "p61-refine-tha"
                   )
 
-file_desc   = "sierra-ens-2sites"
+file_desc   = "sierra-refine-2sites-0716"
 
 names(case_desc) = c("1","2")
 
@@ -204,7 +204,7 @@ gg_width   = 17.5         # Plot width (units below)
 gg_widthn  = 14.5
 gg_height  = 8.5          # Plot height (units below)
 gg_units   = "in"         # Units for plot size
-gg_screen  = TRUE         # Show plots on screen as well?
+gg_screen  = FALSE         # Show plots on screen as well?
 gg_tfmt    = "%Y"         # Format for time strings in the time series %Y: 4 DIGITS YEAR %y 2 digits year
 gg_ncolours    = 129      # Number of node colours for heat maps.
 gg_fleg        = 1./6.    # Fraction of plotting area dedicated for legend
@@ -314,7 +314,8 @@ read_var  = c( "fates_basalarea","fates_crownarea",
                "fates_vegc_aboveground",
                "fates_mortality_rxfire",
                "fates_mortality_rxcambial","fates_mortality_cambialburn",
-               "fates_mortality_crownscorch","fates_mortality_rxcrown") 
+               "fates_mortality_crownscorch","fates_mortality_rxcrown",
+               "fates_seed_alloc") 
 
 fatesvar_new  = fatesvar                   %>% 
                 filter(vnam %in% read_var)
@@ -925,10 +926,10 @@ for (d in sequence(nbydbh-n_vardbh_last)){
       # Sum data across size class for each PFT per time step
       ncm_dat      = aperm(ncm_dat,c(2,3,1))
       dim(ncm_dat) = c(ninst*ntstamp_each, ndbhs*npfts)
-      p1           = base::rowSums(ncm_dat[,2:13]) # for woody PFT we only sums size class > 2.5cm
-      p2           = base::rowSums(ncm_dat[,15:26])
-      p3           = base::rowSums(ncm_dat[,28:39])
-      p4           = base::rowSums(ncm_dat[,41:52])
+      p1           = base::rowSums(ncm_dat[,1:13]) # for woody PFT we only sums size class > 2.5cm
+      p2           = base::rowSums(ncm_dat[,14:26])
+      p3           = base::rowSums(ncm_dat[,27:39])
+      p4           = base::rowSums(ncm_dat[,40:52])
       ncm_dat      = rbind(p1,p2,p3,p4)
       ncm_dat      = aperm(ncm_dat,c(2,1))
       nc_dat       = f_add0 + f_mult * ncm_dat
@@ -1101,6 +1102,9 @@ for(c in sequence(ncase)){
 
 
 ```
+
+
+
 
 ```{r,label="melt-data",message=FALSE,results='hide'}
 cat0(" + Turn age-dependent matrices into tibble objects.")
@@ -1450,15 +1454,11 @@ mortout_dbh    = names(bydbh)[grep(pattern="mortality",x=names(bydbh))]
 
 
 find_mort = function(x,n){
-   mort_mon = ifelse( test = n == 0, yes = 0., no = pmin(1.,x/n/12.))
-   mort_year = 100. * (1. - (1. - mort_mon)^12)
-   return(mort_year)
+  mort_mon = ifelse( test = n == 0, yes = NA, no = pmin(1.,x/n/12.))
+  mort_year = ifelse(is.na(mort_mon), NA, 100. * (1. - (1. - mort_mon)^12))
+  return(mort_year)
 }#end function find_mort
 
-#bypft  =     bypft                                              %>% 
-#             group_by(case,time)                                %>% 
-#             mutate(tnplant = sum(fates_nplant,na.rm=TRUE))     %>% 
-#             ungroup()
 
 bypft  =     bypft                                              %>% 
              mutate(month = month(time)
@@ -1519,14 +1519,14 @@ pft_mortmean = pft_mortmean               %>%
 
 
 
-```{r,label="ensemble-filtering"}
+```{r,label="ensemble-filtering-fireon"}
 
 ens_filter =   pft_strucmean                                %>% 
                group_by(case,ens_label,case_ens)            %>% 
-               mutate(survi_lab = (fates_vegc_aboveground[pft==1] >1.5 &
-                                   fates_vegc_aboveground[pft==2] >0.6 &
+               mutate(survi_lab = (fates_vegc_aboveground[pft==1] >1 &
+                                   fates_vegc_aboveground[pft==2] >1 &
                                    fates_vegc_aboveground[pft==3] >1 &
-                                   fates_vegc_aboveground[pft==4] >0.1)) %>% 
+                                   fates_vegc_aboveground[pft==4] >0)) %>% 
                filter(survi_lab) %>% ungroup()
 
 c1_filter  = ens_filter                                      %>% 
@@ -1546,6 +1546,64 @@ c2_filter  = ens_filter                                      %>%
 survi_lab = intersect(unique(c1_filter$ens_label), unique(c2_filter$ens_label))
 survi_ens = unique(ens_filter$case_ens[ens_filter$ens_label %in% survi_lab])
 ens_filter = ens_filter %>% filter(case_ens %in% survi_ens)
+nsurvi    = length(survi_lab)
+
+```
+
+
+
+
+
+```{r,label="ensemble-filtering-fireoff"}
+
+## PFT coexistence 
+#ens_filter =   pft_strucmean                                %>% 
+#               group_by(case,ens_label,case_ens)            %>% 
+#               mutate(survi_lab = (fates_vegc_aboveground[pft==1] >0.5 &
+#                                   fates_vegc_aboveground[pft==2] >0.5 &
+#                                   fates_vegc_aboveground[pft==3] >0.5 &
+#                                   fates_vegc_aboveground[pft==4] >0)) %>% 
+#               filter(survi_lab) %>% ungroup()
+
+# relative composition
+
+ens_filter = pft_strucmean                                                           %>% 
+             group_by(case,ens_label,case_ens)                                       %>% 
+             mutate(sum_ba = sum(fates_basalarea),
+                    oak_bapct = fates_basalarea[pft==4] / sum_ba)                    %>% 
+             mutate(survi_lab = ((fates_basalarea[pft==1] < fates_basalarea[pft==2] |
+                                 fates_basalarea[pft==1] < fates_basalarea[pft==3]) &
+                                 oak_bapct < 0.05))          %>% 
+             ungroup()                                       %>% 
+             filter(survi_lab)
+
+## site characteristics
+ens_filter = ens_filter                                     %>% 
+             group_by(case,ens_label,case_ens)               %>% 
+             mutate(sum_agb   = sum(fates_vegc_aboveground),
+                    sum_stem  = sum(fates_nplant),
+                    sum_ste_uns = sum(fates_nplant_ustory),
+                    fir_stempct = fates_nplant[pft==3]/sum_stem,
+                    fir_uns_stempct = fates_nplant_ustory[pft==3]/sum_ste_uns)%>% 
+             mutate(survi_lab = (#sum_ba >= 10.5 &
+                                 #sum_ba <= 63.3 &
+                                 #sum_agb>= 2.   &
+                                 #sum_agb<= 16   &
+                                 #sum_stem>268    &
+                                 fir_stempct>0.25 &
+                                 fir_uns_stempct > 0.5))     %>% 
+             ungroup()                                       %>% 
+             filter(survi_lab)
+## meet all criteria at both sites
+survi_lab = intersect(unique(ens_filter$ens_label[ens_filter$case==1]), 
+                      unique(ens_filter$ens_label[ens_filter$case==2]))
+
+survi_manual = c("node_001-task_007","node_001-task_021",
+                 "node_002-task_023","node_002-task_034",
+                 "node_002-task_036")
+survi_lab    =c(survi_lab,survi_manual)
+survi_ens = unique(pft_strucmean$case_ens[pft_strucmean$ens_label %in% survi_lab])
+ens_filter = pft_strucmean %>% filter(case_ens %in% survi_ens)
 nsurvi    = length(survi_lab)
 
 ```
@@ -1614,8 +1672,8 @@ for(c in sequence(ncase)){
                   , plot     = gg_now
                   , device   = gg_device[d]
                   , path     = tspft_path
-                  , width    = gg_width
-                  , height   = gg_height
+                  , width    = gg_widthn*0.75
+                  , height   = gg_height*0.65
                   , units    = gg_units
                   , dpi      = gg_depth
                   )#end ggsave
@@ -1647,7 +1705,7 @@ cat0(" + Plot seasonal dynamics of each PFT for survived ensembles.")
 plot_season = c("fates_gpp","fates_vegc_aboveground","fates_lai","fates_mortality_fire",
               "fates_npp", "fates_mortality_rxcambial", "fates_mortality_cambialburn",
               "fates_mortality_crownscorch","fates_mortality_rxcrown","fates_mortality_rxfire",
-              "fates_mortality_ustory")
+              "fates_mortality_ustory","fates_basalarea","fates_seed_alloc")
 season_loop = which(fatesvar_new$vnam %in% plot_season)
 
 gg_season   = list()
@@ -1701,8 +1759,8 @@ for (c in sequence(ncase)){
                   , plot     = gg_now
                   , device   = gg_device[d]
                   , path     = secy_path
-                  , width    = gg_width
-                  , height   = gg_height
+                  , width    = gg_widthn*0.75
+                  , height   = gg_height*0.65
                   , units    = gg_units
                   , dpi      = gg_depth
                   )#end ggsave
@@ -1811,7 +1869,7 @@ for (h in emean_loop){
     #                          ,aes_string(x="month",y=h_vnam,color="'Site'")
     #                          ,show.legend = TRUE,linewidth=1.5)
    gg_now = gg_now + scale_colour_manual(name="",
-                                         values=c(ens_colour))
+                                         values=c(top12))
                                                  #,"Site" = site_colour))
    #gg_now = gg_now + geom_ribbon( data = obs
   #                              , aes_string(x = "month",ymin=h_vqlwr,ymax=h_vqupr)
@@ -1920,9 +1978,10 @@ for (h in mean_loop){
 
 
 
-```{r,label="climate-fire-PFT-composition"}
-comp_var = c("fates_crownarea","fates_basalarea",
-             "fates_nplant","fates_vegc_aboveground")
+```{r,label="plot-PFT-composition"}
+comp_var = c("fates_crownarea","fates_basalarea","fates_npp",
+             "fates_nplant","fates_vegc_aboveground","fates_seed_alloc",
+             "fates_nplant_canopy","fates_nplant_ustory")
 comp_loop = which(fatesvar_new$vnam %in% comp_var)
 
 for (c in comp_loop){
@@ -1936,10 +1995,18 @@ for (c in comp_loop){
   
   cat0("   - ",f_desc,".")
   df_now = pft_strucmean %>% filter(case_ens %in% survi_ens)
+  #df_now$node = substr(df_now$ens_label,8,8)
+  #df_now$task = substr(df_now$ens_label,16,17)
+  #tk = c("01","02","03","04","05","06","07","08")
+  #tk = c("09","10","11","12","13","14","15","16")
+  #tk = c("17","18","19","20","21","22","23","24")
+  #tk = c("25","26","27","28","29","30","31","32")
+  #tk  =c("33","34","35","36")
+  #df_now      = df_now %>% filter(node==2 & task%in% tk)
   df_now$pft   = factor(df_now$pft,levels=sequence(npfts))
   df_now$case  = factor(df_now$case,levels=sequence(ncase))
   gg_now = ggplot(df_now,aes_string(x = "ens_label", y = f_vnam, fill="pft"))
-  gg_now = gg_now + facet_wrap(.~case,labeller = as_labeller(case_desc))
+  gg_now = gg_now + facet_wrap(.~case,labeller = labeller(case=case_desc))
   gg_now = gg_now + geom_bar(stat = "identity")
   gg_now = gg_now + scale_fill_manual(values = s_colpfts,labels= s_pftlabs )
   gg_now = gg_now + xlab("")
@@ -1981,14 +2048,14 @@ for (c in comp_loop){
 
 ```{r,label="plot-mortality-comp"}
 
-mort_var = mortout_pft[c(1,4:7,11:12)]
+mort_var = mortout_pft[c(1,4:7,11)]
 
 
   s_colpfts   = pftinfo$colour
   s_pftlabs   = pftinfo$short
   names(s_pftlabs) = c("1","2","3","4")
   
-  mort_labs   = c("BgMort","CstrMort","FireMort","FrezMort","HydroMort","TermMort","UstoryMort")
+  mort_labs   = c("BgMort","CstrMort","FireMort","FrezMort","HydroMort","TermMort")
   
   df_now = pft_mortmean %>% filter(mortality %in% mort_var & case_ens %in% survi_ens)
   df_now$pft   = factor(df_now$pft,levels=sequence(npfts))
@@ -1999,12 +2066,12 @@ mort_var = mortout_pft[c(1,4:7,11:12)]
   gg_now = gg_now + scale_x_discrete(labels = s_pftlabs)
   gg_now = gg_now + scale_fill_manual(values = top12)
   gg_now = gg_now + ylab(expression("Mortality (%"~year^-1~")"))
-  gg_now = gg_now + theme_grey( base_size = gg_ptsz*1.2, base_family = "Helvetica",base_line_size= 0.5,base_rect_size =0.5)
+  gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size= 0.5,base_rect_size =0.5)
   gg_now = gg_now + theme( legend.position   = "right"
-                         , legend.text=element_text(size=gg_ptsz*1.2)
-                         , axis.text.x        = element_text( size   = gg_ptsz*1.2
+                         , legend.text=element_text(size=gg_ptsz)
+                         , axis.text.x        = element_text( size   = gg_ptsz
                                                            , margin = unit(rep(0.35,times=4),"cm"))
-                         , axis.text.y       = element_text( size   = gg_ptsz*1.2
+                         , axis.text.y       = element_text( size   = gg_ptsz
                                                            , margin = unit(rep(0.35,times=4),"cm")
                                                            )
                          , axis.ticks.length = unit(-0.25,"cm")
@@ -2017,7 +2084,7 @@ mort_var = mortout_pft[c(1,4:7,11:12)]
                     , plot     = gg_now
                     , device   = gg_device[d]
                     , path     = tsmort_path
-                    , width    = gg_width*1.2
+                    , width    = gg_width
                     , height   = gg_height
                     , units    = gg_units
                     , dpi      = gg_depth
@@ -2262,7 +2329,7 @@ szmort     =      szmort                               %>%
                   group_by(case,ens_label,
                            case_ens,dbh)               %>% 
                   summarize_at(mortout_sz, 
-                               mean, na.rm=FALSE)      %>% 
+                               mean, na.rm=TRUE)      %>% 
                   ungroup()
 #szmort$case = factor(szmort$case,levels=unique(szmort$case))
 szmort$dbh  = factor(szmort$dbh,levels=unique(szmort$dbh))
@@ -2458,7 +2525,7 @@ for(n in sequence(ncase)){
    names(s_pftlabs) = c("1","2","3","4") 
 
   plot1 = ggplot(szpf_survi,aes(dbh,nplant)) + geom_bar(stat = "identity") +
-       facet_wrap(ens_label~pft,scales="free",labeller=labeller(pft=s_pftlabs)) + 
+       facet_wrap(pft~ens_label,scales="free",labeller=labeller(pft=s_pftlabs),nrow=npfts) + 
        scale_x_discrete(labels = dbh_labs ) +
        labs(title=desc_now,
             y=expression("Number of trees"~"("~plant~ha^-1~")"),
@@ -2508,11 +2575,133 @@ for(n in sequence(ncase)){
 
 
 
+```{r,label="plot-PFT-size-structure-all13"}
+
+  #tk = c("01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16")
+  #tk = c("17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32")
+  #tk  =c("33","34","35","36")
+  
+
+for(n in sequence(ncase)){
+  case_now = case_names[n]
+  desc_now = case_desc[n]
+  nc_conn = nc_open(filename=case_files[n])
+  nplant_can = ncvar_get(nc_conn,"FATES_NPLANT_CANOPY_SZPF")
+  nplant_uns = ncvar_get(nc_conn,"FATES_NPLANT_USTORY_SZPF")
+  nplant = nplant_can + nplant_uns
+  nplant = nplant*ha.2.m2   #plant/ha
+  dummy  = nc_close(nc_conn)
+
+
+  np_pine = nplant[1:13,,] 
+  np_cedar= nplant[14:26,,]
+  np_fir  = nplant[27:39,,]
+  np_oak  = nplant[40:52,,]
+
+  np_pine = aperm(np_pine,c(2,3,1))
+  np_cedar= aperm(np_cedar,c(2,3,1))
+  np_fir  = aperm(np_fir,c(2,3,1))
+  np_oak  = aperm(np_oak,c(2,3,1))
+
+  pine_vec = as.vector(np_pine)
+  pine_vec = tibble(pine_vec) %>% rename(nplant = pine_vec)
+  pine_vec$dbh = rep(dbhinfo$id[1:13],each=ntstamp_each*ninst)
+  pine_vec$time= rep(each_tstamp,times=ninst*ndbhs)
+  cedar_vec = as.vector(np_cedar)
+  cedar_vec = tibble(cedar_vec) %>% rename(nplant = cedar_vec)
+  cedar_vec$dbh = rep(dbhinfo$id[1:13],each=ntstamp_each*ninst)
+  cedar_vec$time= rep(each_tstamp,times=ninst*ndbhs)
+  fir_vec   = as.vector(np_fir)
+  fir_vec   = tibble(fir_vec) %>% rename(nplant = fir_vec)
+  fir_vec$dbh = rep(dbhinfo$id[1:13],each=ntstamp_each*ninst)
+  fir_vec$time= rep(each_tstamp,times=ninst*ndbhs)
+  oak_vec   = as.vector(np_oak)
+  oak_vec   = tibble(oak_vec) %>% rename(nplant = oak_vec)
+  oak_vec$dbh = rep(dbhinfo$id[1:13],each=ntstamp_each*ninst)
+  oak_vec$time= rep(each_tstamp,times=ninst*ndbhs)
+  np_pft    = rbind(pine_vec,cedar_vec,fir_vec,oak_vec)
+  np_pft$pft  = rep(pftinfo$id,each=ntstamp_each*ninst*ndbhs)
+  lab         = rep(ens_labels,each=ntstamp_each)
+  np_pft$ens_label = rep(lab,times = ndbhs*npfts)
+  np_pft$node = substr(np_pft$ens_label,8,8) 
+  np_pft$task = substr(np_pft$ens_label,16,17)
+  
+  
+  szpf_survi = np_pft                            %>% 
+             filter(ens_label %in% survi_lab)    %>%
+             #filter(node==2 & task%in%tk)         %>% 
+             mutate(year=year(time))             %>% 
+             filter(year %in% c(lst_s:lst_e))    %>% 
+             dplyr::select(-c(time,year))        %>% 
+             group_by(ens_label,pft,dbh)         %>% 
+             summarize_all(mean)                 %>% 
+             ungroup()        
+  
+  szpf_survi$dbh = factor(szpf_survi$dbh,levels=unique(szpf_survi$dbh))
+  dbh_labs     = dbhinfo$labs[1:13]
+  dbh_labs     = parse(text=dbh_labs)
+  names(dbh_labs) = c("1","2","3","4","5","6","7","8","9","10","11","12","13")
+   szpf_survi$pft = factor(szpf_survi$pft,levels=unique(szpf_survi$pft))
+   s_pftlabs   = pftinfo$short
+   s_pftcols   = pftinfo$colour
+   names(s_pftlabs) = c("1","2","3","4") 
+
+  plot1 = ggplot(szpf_survi,aes(dbh,nplant)) + geom_bar(stat = "identity") +
+       facet_wrap(pft~ens_label,scales="free",labeller=labeller(pft=s_pftlabs),nrow=npfts) + 
+       scale_x_discrete(labels = dbh_labs ) +
+       labs(title=desc_now,
+            y=expression("Number of trees"~"("~plant~ha^-1~")"),
+            x="Size class(cm)") +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+for (d in sequence(ndevice)){
+    f.output = paste0(case_now,"PFT-size-distribution-all13",".",gg_device[d])
+    dummy = ggsave( filename = f.output
+                  , plot     = plot1
+                  , device   = gg_device[d]
+                  , path     = tspft_path
+                  , width    = gg_widthn*0.6
+                  , height   = gg_height*0.8
+                  , units    = gg_units
+                  , dpi      = gg_depth
+                  )#end ggsave
+  }#end for (o in sequence(nout))
+  
+  
+  
+   plot2 = ggplot(szpf_survi,aes(dbh,nplant,fill=pft)) + geom_bar(stat = "identity") +
+       facet_wrap(.~ens_label,scales="free") + 
+       scale_x_discrete(labels = dbh_labs ) +
+       scale_fill_manual(values=s_pftcols,labels=as_labeller(s_pftlabs))+
+       labs(title=desc_now,
+            y=expression("Number of trees"~"("~plant~ha^-1~")"),
+            x="Size class(cm)") +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+  for (d in sequence(ndevice)){
+    f.output = paste0(case_now,"size-distribution-pftstack-all13",".",gg_device[d])
+    dummy = ggsave( filename = f.output
+                  , plot     = plot2
+                  , device   = gg_device[d]
+                  , path     = tspft_path
+                  , width    = gg_width
+                  , height   = gg_height
+                  , units    = gg_units
+                  , dpi      = gg_depth
+                  )#end ggsave
+  }#end for (o in sequence(nout))
+}
+
+
+```
+
+
 
 ```{r,label="plot-mortality-by-PFT-size-class"}
 
+#selec_month = c("7","8","9","10","11")
 mort_which = which(fatesvar_new$vnam %in% mortout_pft)
-selec_month = c("8","9","10","11")
+
 for(n in sequence(ncase)){
   case_now = case_names[n]
   desc_now = case_desc[n]
@@ -2544,13 +2733,12 @@ for(n in sequence(ncase)){
                           ~ find_mort(x=.x,n= if_else(.x=="fates_mortality_ustory", 
                                                       .data$nplant_ustory, 
                                                       .data$nplant))) %>% 
-                mutate(month=month(time),
-                       year=year(time))             %>% 
-                filter(month %in% selec_month)      %>% 
-                group_by(ens_label,pft,dbh)         %>% 
-                select(-c(time,month,year,nplant_ustory,nplant)) %>% 
-                summarize_all(mean)                 %>% 
-                ungroup()    
+               #mutate(month = month(time))                            %>% 
+               #filter(month %in% selec_month)                         %>% 
+               group_by(ens_label,pft,dbh)                            %>% 
+               select(-c(time,nplant_ustory,nplant))                  %>% 
+               summarize_all(mean,na.rm=TRUE)                         %>% 
+               ungroup()    
   #size_pft = rbind(sz_20,size_pft)
 
 
@@ -2563,7 +2751,7 @@ for(n in sequence(ncase)){
   names(dbh_labs) = c("1","2","3","4","5","6","7","8","9","10","11","12","13")
 
   plot = ggplot(mort_pfsz,aes_string("dbh",m_vnam)) + geom_bar(stat = "identity") +
-       facet_wrap(ens_label~pft, labeller=labeller(pft=pft_labs)) + 
+       facet_wrap(pft~ens_label, labeller=labeller(pft=pft_labs)) + 
        scale_x_discrete(labels = dbh_labs ) +
        labs(title=desc_now,
             y=desc.unit(desc=m_desc,unit=untab[[m_unit]],twolines=TRUE),
@@ -2571,12 +2759,12 @@ for(n in sequence(ncase)){
       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
   for (d in sequence(ndevice)){
-    f.output = paste0(case_now,m_vnam,"-pfsz.",gg_device[d])
+    f.output = paste0(case_now,m_vnam,"-pfsz-zero.",gg_device[d])
     dummy = ggsave( filename = f.output
                   , plot     = plot
                   , device   = gg_device[d]
                   , path     = tsmort_path
-                  , width    = gg_widthn*0.5
+                  , width    = gg_widthn*0.6
                   , height   = gg_height*0.6
                   , units    = gg_units
                   , dpi      = gg_depth
@@ -3033,6 +3221,11 @@ if (gg_screen) gg_fire
 
 
 ```{r,label="plot-agb-by-patch-pft"}
+
+scale_age = function(x,p){
+  scale = x*p
+  return(scale)
+}
 plot_age = nc_byage[5]
 age_pref  = gsub(pattern="_AP$",replacement="",x=plot_age)
 age_pref  = gsub(pattern="_APFC$",replacement="",x=plot_age)
@@ -3055,10 +3248,17 @@ for(a in sequence(length(plot_age))){
    desc_now = case_desc[n]
    nc_conn  = nc_open(filename=case_files[n])
    vegc     = ncvar_get(nc_conn,fvar_now)
+   parea    = ncvar_get(nc_conn,"FATES_PATCHAREA_AP")
    vegc     = aperm(vegc,c(2,3,1))
-   vegc     = tibble(as.vector(vegc))
+   vegc     = as.vector(vegc)
+   parea    = aperm(parea,c(2,3,1))
+   parea    = as.vector(parea)
+   parea    = rep(parea,times = npfts)
+   vegc     = tibble(vegc)
+ 
    names(vegc) = h_vnam
-   vegc$case = case_now
+   vegc$parea  = parea
+   vegc$desc = desc_now
    lab = rep(ens_labels,each = ntstamp_each)
    vegc$ens_label = rep(lab,times=nages*npfts)
    vegc$pft       = rep(pftinfo$id, each = ninst*ntstamp_each*nages)
@@ -3070,10 +3270,14 @@ for(a in sequence(length(plot_age))){
    rm(vegc)}
    
    age_df   = age_df                       %>% 
+              mutate_at(h_vnam,
+                        ~ scale_age(x=.x,p=.data$parea)) %>%
+              mutate_at(h_vnam,
+                        ~ exclude_zero(var=.x))  %>% 
               mutate(year = year(time))    %>% 
-              filter(ens_label %in% survi_lab,
-                     year %in% c(lst_s:lst_e)) %>% 
-              group_by(case,ens_label,pft,
+              filter(ens_label %in% survi_lab) %>% 
+                    # year %in% c(1789:1799)) %>% 
+              group_by(desc,ens_label,pft,
                        age)                %>% 
               dplyr::select(-c(time,year)) %>% 
               summarize_all(mean,
@@ -3084,7 +3288,7 @@ for(a in sequence(length(plot_age))){
    names(s_pftlabs) = c("1","2","3","4")   
    gg_now = ggplot(data=age_df,aes_string(x="age",y=h_vnam,fill="pft"))
    gg_now = gg_now + geom_bar(stat = "identity")
-   gg_now = gg_now + facet_wrap(case~ens_label,nrow=ncase,scales="free",labeller=labeller(case=case_desc))
+   gg_now = gg_now + facet_wrap(desc~ens_label,nrow=ncase,scales="free")
    gg_now = gg_now + scale_fill_manual(values=pftinfo$colour,labels=as_labeller(s_pftlabs))
    gg_now = gg_now + xlab(element_blank())
    gg_now = gg_now + ylab(desc.unit(desc=h_desc,unit=untab[[h_unit]],twolines=TRUE))
