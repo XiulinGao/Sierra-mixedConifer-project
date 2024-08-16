@@ -93,7 +93,7 @@ if (file.exists(parset_file)){
   param_config$all_pft = param_config$pft_var & (param_config$pft == 0L)
   param_config$org_var = is.finite(param_config$organ)
   param_config$all_org = param_config$org_var & (param_config$organ == 0L)
-  param_config$lhs_spl = param_config$pft_ineq == "FALSE"
+  param_config$lhs_spl = param_config$ineq == "FALSE"
 
   #---~---
   
@@ -280,7 +280,7 @@ param_table = add0 + mult * param_quant
 
 #### non-LHS sampling ####
 #---~---
-#   Generate parameters that are based on reference values from other PFTs .
+#   Generate parameters that are based on reference values from other PFTs and parameters.
 #---~---
 param_ref = param_config$corr_name[!param_config$lhs_spl]
 n_ref     = length(param_ref)
@@ -292,7 +292,7 @@ param_pd  = matrix( data = NA_real_
 param_pd = as.data.frame(param_pd)
 param_table = cbind(param_table,param_pd)
 rm(param_pd)
-  
+opt       = c("lt","gt","eq")
 for (r in sequence(nrow(param_table))){
   for(p in sequence(n_ref)){
     targ_col  = param_ref[p]
@@ -300,13 +300,11 @@ for (r in sequence(nrow(param_table))){
     param_prefix = param_config$fates_parameter_name[ridx]
     tag_min   = param_config$value_min[ridx]
     tag_max   = param_config$value_max[ridx]
-    ineq      = param_config$pft_ineq[ridx]
-    fst_cha   = substr(ineq,1,2)
-    lst       = str_length(ineq)
-    opt       = c("lt","gt","eq")
-    if(fst_cha %in% opt){
-      ref_pft = substr(ineq,3,lst)
-      ref_col = paste0(param_prefix,"_",ref_pft)
+    ineq      = param_config$ineq[ridx]
+    ref_pft   = param_config$ref_pft[ridx]
+    ref_param = param_config$ref_parameter[ridx]
+    if(ineq %in% opt){
+      ref_col = paste0(ref_param,"_",ref_pft)
       ref_val = param_table[[ref_col]][[r]]
       if(tag_min > ref_val | tag_max < ref_val){
         cat ("-------------------------------------------------------------------\n"       )
@@ -314,26 +312,54 @@ for (r in sequence(nrow(param_table))){
         stop("range error for sampling")
       }
       else{
-        if(fst_cha == "gt"){
+        if(ineq == "gt"){
           assign_val = runif(1,min=ref_val,max=tag_max)
         }
-        if(fst_cha == "lt"){
+        if(ineq == "lt"){
           assign_val = runif(1,min=tag_min,max=ref_val)
         }
-        if(fst_cha == "eq"){
+        if(ineq == "eq"){
           assign_val = ref_val
         }
         param_table[[targ_col]][[r]] = assign_val
       } 
     } #end of  if(fst_cha %in% opt)
-    if (ineq == "fates_leaf_slamax"){
-      for(i in sequence(n_pft)){
-        ref_col = paste0("fates_leaf_slamax",sprintf("_P%2.2i",i))
-        targ_col= paste0("fates_leaf_slatop",sprintf("_P%2.2i",i))
-        param_table[[targ_col]][[r]] = param_table[[ref_col]][[r]]
-      }
+    if (ineq == "complex_sla"){
+     if(ref_pft=="FALSE"){
+       opt_plx = substr(ref_param, 1,2)
+       ref_col = substr(ref_param,3,str_length(ref_param))
+       ref_val = param_table[[ref_col]][[r]]
+       if(opt_plx == "gt"){
+         assign_val = runif(1,min=ref_val,max=tag_max)
+       }
+       if(opt_plx == "lt"){
+         assign_val = runif(1,min=tag_min,max=ref_val)
+       }
+       if(opt_plx == "eq"){
+         assign_val = ref_val
+       }
+       param_table[[targ_col]][[r]] = assign_val
+     } #end of if(isFALSE(ref_pft))
+     else{
+       opt_pft     = substr(ref_pft,1,2)
+       ref_pft_col = substr(ref_pft,3,str_length(ref_pft))
+       ref_pft_val = param_table[[ref_pft_col]][[r]]
+       opt_param   = substr(ref_param,1,2)
+       ref_param_col = substr(ref_param,3,str_length(ref_param))
+       ref_param_val = param_table[[ref_param_col]][[r]]
+       if(is.na(ref_pft_val) | is.na(ref_param_val)){
+         stop("make sure sampling of reference value happen ahead of\"",targ_col,"\"")}
+       if(opt_pft=="gt" & ref_pft_val < ref_param_val){
+         assign_val = runif(1,min=ref_pft_val,max=ref_param_val)}
+       else if(opt_pft=="lt" & ref_pft_val > ref_param_val){
+         assign_val = runif(1,min=ref_param_val,max=ref_pft_val)}
+       else{
+         stop("make sure relative difference between salmax and slatop within and among PFTs are correct ")
+       }
+       param_table[[targ_col]][[r]] = assign_val
+     }#end of if(isFALSE(ref_pft))
       
-    } #end of if(ineq=="fates_leaf_slamax")
+    } #end of if(ineq=="complex")
     
     if(param_prefix == "fates_frag_maxdecomp"){
       ref_col = "fates_frag_maxdecomp_O01"
