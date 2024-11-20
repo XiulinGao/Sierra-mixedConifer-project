@@ -304,7 +304,12 @@ for (r in sequence(nrow(param_table))){
     ref_pft   = param_config$ref_pft[ridx]
     ref_param = param_config$ref_parameter[ridx]
     if(ineq %in% opt){
-      ref_col = paste0(ref_param,"_",ref_pft)
+      
+      if(!is.na(ref_pft)){
+        ref_col = paste0(ref_param,"_",ref_pft)
+      }
+      else{ref_col = ref_param}
+      
       ref_val = param_table[[ref_col]][[r]]
       if(tag_min > ref_val | tag_max < ref_val){
         cat ("-------------------------------------------------------------------\n"       )
