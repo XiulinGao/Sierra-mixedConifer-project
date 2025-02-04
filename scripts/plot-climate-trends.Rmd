@@ -1,0 +1,142 @@
+---
+title: "Site-climate-monthly-mean"
+author: "Xiulin Gao"
+date: "Feb-04-2025"
+output: html_notebook
+---
+this script takes WRF hourly forcing data (file split by month), extract the nearest point, and plot historical climate trend for selected sites. 
+
+```{r, label="load-packages", include=FALSE}
+library(ncdf4)
+library(lubridate)
+library(tidyverse)
+library(data.table)
+library(ggplot2)
+
+```
+
+
+
+
+
+```{r, label="path-setting"}
+in_path    = file.path('/glade/work/xiugao/fates-input/ca-wrf-grassland/CLM1PT_data')
+out_path   = file.path('/glade/work/xiugao/fates-input/CZ2/CLM1P_data')
+wrfxy_path = file.path(in_path,'1981-01.nc')
+
+wrf_files = list.files(in_path)
+nfile     = length(wrf_files)
+
+yr_s      = 1951
+yr_e      = 2020
+n_yr      = yr_e - yr_s + 1
+nc_year      = as.numeric(yr_s:yr_e)
+nc_month     = as.numeric(1:12)
+yr_each      = rep(nc_year,each=12)
+month_each   = rep(nc_month, times=n_yr)
+each_tstamp  = make_datetime(year=yr_each,month=month_each,day=1L, hour=0L)
+dtime        = length(each_tstamp)
+
+
+
+```
+
+
+
+
+```{r,label="constant"}
+K_2_degC  = -273.15
+
+```
+
+
+
+
+```{r, label="site-info"}
+
+site_x = c(-120.0406,-122.49499,-122.6896,-122.6236)
+site_y = c(34.6928, 38.00874, 38.5698,38.4292)
+site_names = c("Sedgwick","China-Camp",
+               "Pepperwood","Annadel")
+nsites = length(site_names)
+
+## read climate variables
+
+clim_var = c("PRECTmms","TBOT") # in mm/s and K respectively 
+nclim    = length(clim_var)
+
+```
+
+
+
+```{r, label="coordinates"}
+targ_xy = data.frame(site_x,site_y)
+wrf_dim  = nc_open(wrfxy_path)
+wrf_x    = ncvar_get(wrf_dim,"LONGXY")
+wrf_y    = ncvar_get(wrf_dim,"LATIXY")
+x_vec    = as.vector(wrf_x)
+y_vec    = as.vector(wrf_y)
+wrf_xy   = data.frame(x_vec,y_vec)
+
+```
+
+
+
+```{r, label="find-the-nearest-point"}
+find_nnxy = function(targ,ref){
+  nn_pt = RANN::nn2(ref[,1:2],targ[,1:2],k=1)
+  nn_idx = as.vector(nn_pt$nn.idx)
+  ref_xy = ref[nn_idx,]
+  return(ref_xy)
+}
+
+```
+
+
+
+```{r,label="extrac-clim-NN"}
+
+site_clim   = as_tibble( matrix(   data     = NA_real_
+                              , nrow     = dtime * nsites
+                              , ncol     = nclim + 2
+                              , dimnames = list(NULL,c("site","time",clim_var))
+                         ))
+
+for (n in seqence(nsites)){
+  targ_now = targ_xy[n,]
+  site_now = site_names[n]
+  nn_wrf = find_nnxy(targ_now,wrf_xy)
+  wrf_nnidx1 = which(wrf_x==nn_wrf$x_vec,arr.ind=TRUE)
+  wrf_nnidx2 = which(wrf_y==nn_wrf$y_vec,arr.ind=TRUE)
+  sprintf("nearest point indices found in WRF is %s and %s", wrf_nnidx1[1:2], wrf_nnidx1[1:2])
+  wrf_nnidx = wrf_nnidx1
+  
+  for (f in sequence(nfile)){
+    time_now = each_tstamp[f]
+    file_now = wrf_files[f]
+    path_now = file.path(in_path,file_now)
+    nc_now   = nc_open(path_now)
+    site_clim$site[[f]] = site_now
+    site_clim$time[[f]] = time_now
+    
+    for (c in sequence(nclim)){
+      clim_now = clim_var[c]
+      df_now   = ncvar_get(nc_now, varid = clim_now)
+      df_now   = df_now[wrf_nnidx[1],wrf_nnidx[2],]
+      ## calculate daily mean temp and precipitation by doing
+      ## a running mean with moving window of 24 as it's hourly data
+      df_now = frollmean(df_now, n=24)
+      ## then monthly mean by average df_now
+      df_now = mean(df_now,na.rm=TRUE)
+      site_clim[[clim_now]][[f]] = df_now
+    }
+     
+  }#end of for (f in sequence(nfile))
+  
+} #end of for (n in n in sequence(nsites))
+
+file_name = paste0("climate-by-sites.csv")
+fwrite(site_clim,file.path(out_path,file_name))
+
+```
+
