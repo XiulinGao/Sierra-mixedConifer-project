@@ -18,13 +18,48 @@ library(ggplot2)
 
 
 
+```{r,label="constant"}
+K_2_degC  = -273.15
+hr_2_sec  = 3600
+day.hr    = 24
+day.min   = 1440
+day.sec   = 86400
+
+```
+
+
+
+
+```{r,label="plot-settings"}
+gg_device  = c("png")     # Output devices to use (Check ggsave for acceptable formats)
+gg_depth   = 600          # Plot resolution (dpi)
+gg_ptsz    = 18           # Font size
+gg_ptszl   = 26
+gg_width   = 17.5         # Plot width (units below)
+gg_widthn  = 14.5
+gg_height  = 8.5          # Plot height (units below)
+gg_units   = "in"         # Units for plot size
+gg_screen  = FALSE         # Show plots on screen as well?
+gg_tfmt    = "%Y"         # Format for time strings in the time series %Y: 4 DIGITS YEAR %y 2 digits year
+gg_ncolours    = 129      # Number of node colours for heat maps.
+gg_fleg        = 1./6.    # Fraction of plotting area dedicated for legend
+gg_dstat_thick = 0.1      # Thickess for the drought-deciduous status band in the stress overview plot (Value
+ndevice = length(gg_device)
+
+
+ens_colour = c("#A0AE6A", "#836B43", "#D68D18", "#437683", "#18B0D6")
+
+```
+
+
 
 ```{r, label="path-setting"}
 in_path    = file.path('/glade/work/xiugao/fates-input/ca-wrf-grassland/CLM1PT_data')
 out_path   = file.path('/glade/work/xiugao/fates-input/CZ2/CLM1P_data')
+plot_path  = file.path("~/Sierra-mixedConifer-project/results")
 wrfxy_path = file.path(in_path,'1981-01.nc')
 
-wrf_files = list.files(in_path)
+wrf_files = list.files(in_path,pattern=".nc$")
 nfile     = length(wrf_files)
 
 yr_s      = 1951
@@ -37,17 +72,15 @@ month_each   = rep(nc_month, times=n_yr)
 each_tstamp  = make_datetime(year=yr_each,month=month_each,day=1L, hour=0L)
 dtime        = length(each_tstamp)
 
+##time unit conversion
+
+cmon.day = days_in_month(each_tstamp)
+cmon.sec = day.sec * cmon.day
 
 
-```
-
-
-
-
-```{r,label="constant"}
-K_2_degC  = -273.15
 
 ```
+
 
 
 
@@ -96,10 +129,10 @@ find_nnxy = function(targ,ref){
 
 ```{r,label="extrac-clim-NN"}
 
-site_clim   = as_tibble( matrix(   data     = NA_real_
+site_clim   = as_tibble( matrix(   data  = NA
                               , nrow     = dtime * nsites
-                              , ncol     = nclim + 2
-                              , dimnames = list(NULL,c("site","time",clim_var))
+                              , ncol     = nclim + 1
+                              , dimnames = list(NULL,c("site",clim_var))
                          ))
 
 for (n in seqence(nsites)){
@@ -112,12 +145,15 @@ for (n in seqence(nsites)){
   wrf_nnidx = wrf_nnidx1
   
   for (f in sequence(nfile)){
-    time_now = each_tstamp[f]
     file_now = wrf_files[f]
     path_now = file.path(in_path,file_now)
     nc_now   = nc_open(path_now)
-    site_clim$site[[f]] = site_now
-    site_clim$time[[f]] = time_now
+    
+    if(n==1){
+          site_clim$site[[f]] = site_now
+          }
+      else{site_clim$site[[(n-1)*dtime + f]] = site_now
+          }
     
     for (c in sequence(nclim)){
       clim_now = clim_var[c]
@@ -128,15 +164,97 @@ for (n in seqence(nsites)){
       df_now = frollmean(df_now, n=24)
       ## then monthly mean by average df_now
       df_now = mean(df_now,na.rm=TRUE)
-      site_clim[[clim_now]][[f]] = df_now
+      
+      if(n==1){
+          site_clim[[clim_now]][[f]] = df_now}
+      else{
+          site_clim[[clim_now]][[(n-1)*dtime + f]] = df_now
+      }
     }
-     
+     dummy  = nc_close(nc_now)
   }#end of for (f in sequence(nfile))
   
 } #end of for (n in n in sequence(nsites))
 
+site_clim = site_clim %>% mutate(TBOT = TBOT + K_2_degC)
+site_clim$time = rep(each_tstamp,times=nsites)
+
 file_name = paste0("climate-by-sites.csv")
 fwrite(site_clim,file.path(out_path,file_name))
+
+```
+
+
+
+```{r,label="monthly-mean"}
+
+site_clim$mon_sec = rep(cmon.sec,times=nsites)
+
+mmean = site_clim                            %>% 
+        mutate(month = month(time),
+               PRECTmms = PRECTmms*mon_sec)  %>% 
+        group_by(site,month)                 %>% 
+        select(-time)                        %>% 
+        summarize_all(mean,na.rm=TRUE)       %>%
+        rename(rain =  PRECTmms,
+               temp = TBOT)                  %>% 
+        ungroup()
+
+```
+
+
+
+
+
+```{r,label="plot-site-monthly-climate"}
+
+plot_var = c("temp","rain")
+nplot = length(plot_var)
+
+for(p in sequence(nplot)){
+  var_now = plot_var[p]
+  plot_now = ggplot(mmean, aes_string("month",var_now,colour="site")) 
+  plot_now = plot_now + geom_line(linewidth=1.5) 
+  plot_now = plot_now + scale_x_continuous( breaks = sequence(12)) 
+  plot_now = plot_now + xlab("Month") 
+  if(var_now=="temp"){
+      plot_now = plot_now + ylab(expression("Temperature ("*~degree*C*")"))}else{
+      plot_now = plot_now + ylab(expression("Precipitation ("~mm~month^-1~")"))
+      }
+  plot_now = plot_now + scale_color_manual(values = ens_colour) 
+  plot_now = plot_now + theme_grey( base_size = gg_ptsz, 
+                                    base_family = "Helvetica",
+                                    base_line_size = 0.5,
+                                    base_rect_size =0.5)
+  plot_now = plot_now + theme(legend.position   = "right"
+                            , axis.text.x       = element_text( size   = gg_ptsz
+                                                  , margin = unit(rep(0.35,times=4),"cm")
+                                                   )#end element_text
+                            , axis.text.y       = element_text( size   = gg_ptsz
+                                                  , margin = unit(rep(0.35,times=4),"cm")
+                                                  )#end element_text
+                            , plot.title        = element_text( size = gg_ptsz)
+                            , axis.ticks.length = unit(-0.25,"cm")
+                )#end theme
+
+ for (d in sequence(ndevice)){
+    f.output = paste0("site-monthly-",var_now,".",gg_device[d])
+    dummy = ggsave( filename = f.output
+                  , plot     = plot_now
+                  , device   = gg_device[d]
+                  , path     = plot_path
+                  , width    = gg_widthn*0.5
+                  , height   = gg_height*0.5
+                  , units    = gg_units
+                  , dpi      = gg_depth
+                  )#end ggsave
+  }#end for (o in sequence(nout))
+      
+
+
+}
+
+
 
 ```
 
