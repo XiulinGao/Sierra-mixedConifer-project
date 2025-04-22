@@ -1,0 +1,399 @@
+---
+title: "multi-sites-treatment-effects"
+author: "Xiulin Gao"
+date: "2025-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+home_path   = path.expand("~")
+main_path   = file.path("/Volumes/Ldian/FATES/exp-3sites")
+util_path   = file.path(home_path,"Util/RUtils")
+hlm_files   = c("blodgett-exp-0420_hlm1d.csv",
+                "Teakettle-exp_hlm1d.csv",
+                "STEF-exp-10yr_hlm1d.csv")
+hlm_paths   = file.path(main_path,hlm_files)
+pft_files  = c("blodgett-exp-0420_bypft-dbh10.csv",
+               "Teakettle-exp_bypft-dbh10.csv",
+               "STEF-exp-10yr_bypft-dbh10.csv")
+pft_paths   = file.path(main_path,pft_files)
+dbh_files  = c("blodgett-exp-0420_bydbh.csv",
+               "Teakettle-exp_bydbh.csv",
+               "STEF-exp-10yr_bydbh.csv")
+dbh_paths   = file.path(main_path,dbh_files)
+fuel_files = c("blodgett-exp-0420_byfuel.csv",
+               "Teakettle-exp_byfuel.csv",
+               "STEF-exp-10yr_byfuel.csv")
+fuel_paths   = file.path(main_path,fuel_files)
+nsites = length(fuel_paths)
+
+case_desc = c("Blodgett-Control",
+              "Blodgett-75-50-20-BA40",
+              "Blodgett-Rx-InclusiveBW",
+              "Blodgett-Rx-SelectiveBW",
+              "Teakettle-Control",
+              "Teakettle-45-90-100-BA40",
+              "Teakettle-Rx-InclusiveBW",
+              "Teakettle-Rx-SelectibeBW",
+              "STEF-Control",
+              "STEF-75-50-20-BA49p5",
+              "STEF-Rx-InclusiveBW",
+              "STEF-Rx-SelectiveBW")
+names(case_desc) = c("1","2","3","4","5","6","7","8","9","10","11","12")
+ncase = length(case_desc)/nsites
+
+```
+
+
+
+
+```{r,label="make-dir"}
+
+#plot path
+plot_main  = file.path(main_path,"Figures")
+# Output path for time series
+pft_path     = file.path(plot_main,"Effects-PFT"     )
+size_path    = file.path(plot_main,"Effects-DBH"     )
+mean_path    = file.path(plot_main,"Effects-Mean"    )
+
+# Create paths for time series
+dummy = dir.create(pft_path    , recursive = TRUE, showWarnings = FALSE)
+dummy = dir.create(size_path   , recursive = TRUE, showWarnings = FALSE)
+dummy = dir.create(mean_path   , recursive = TRUE, showWarnings = FALSE)
+
+```
+
+
+
+
+
+```{r UserPFTInfo}
+## PFT info
+user_pftinfo  = TRUE
+
+# List of PFTs, in case user_pftinfo is TRUE
+n            = 0
+pftinfo      = list()
+n            = n + 1
+pftinfo[[n]] = list( id     = 1
+                     , key    = "pft1"
+                     , short  = "Pine"
+                     , desc   = "Pine tree"
+                     , colour = "#74A089"
+                     , parse  ="P*i*n*e[E*v*g*r*n]"
+)
+n            = n + 1
+pftinfo[[n]] = list( id     = 2
+                     , key    = "pft2"
+                     , short  = "Cedar"
+                     , desc   = "Incense cedar"
+                     , colour = "#9A8822"
+                     , parse  ="C*e*d*a*r[E*v*g*r*n]"
+)       
+n            = n + 1
+pftinfo[[n]] = list( id     = 3
+                     , key    = "pft3"
+                     , short  = "Fir"
+                     , desc   = "White fir"
+                     , colour = "#F8AFA8"
+                     , parse  ="F*i*r[E*v*g*r*n]"
+) 
+n            = n + 1
+pftinfo[[n]] = list( id     = 4
+                     , key    = "pft4"
+                     , short  = "Oak"
+                     , desc   = "Black oak"
+                     , colour = "#FDDDA0"
+                     , parse  ="F*i*r[E*v*g*r*n]"
+) #end of PFT list
+
+pftinfo  = do.call(what=rbind,args=lapply(X=pftinfo,FUN=as_tibble,stringsAsFactors=FALSE))
+npfts = nrow(pftinfo)
+
+```
+
+
+
+```{r,label="plot-setting"}
+
+gg_device  = c("png")     # Output devices to use (Check ggsave for acceptable formats)
+gg_depth   = 600          # Plot resolution (dpi)
+gg_ptsz    = 18           # Font size
+gg_ptszl   = 26
+gg_width   = 17.5         # Plot width (units below)
+gg_widthn  = 14.5
+gg_height  = 8.5          # Plot height (units below)
+gg_units   = "in"         # Units for plot size
+gg_screen  = FALSE         # Show plots on screen as well?
+gg_tfmt    = "%Y"         # Format for time strings in the time series %Y: 4 DIGITS YEAR %y 2 digits year
+gg_ncolours    = 129      # Number of node colours for heat maps.
+gg_fleg        = 1./6.    # Fraction of plotting area dedicated for legend
+gg_dstat_thick = 0.1      # Thickess for the drought-deciduous status band in the stress overview plot (Value
+
+
+ens_colour = c("#A0AE6A", "#836B43", "#D68D18", "#437683", "#18B0D6")
+
+top12 <- c("#88CCEE", "#CC6677", "#DDCC77", "#117733", "#332288", "#AA4499", 
+           "#44AA99", "#999933", "#882255", "#6699CC", "#888888", "#661100")
+
+site_colour  = "#000000"
+
+ndevice = length(gg_device)
+
+
+# Define lower and upper bound for interannual variability ribbon around the mean.
+sdev_ribbon  = 1.                  # Standard-deviation equivalent for ribbon 
+qlwr_ribbon  = pnorm(-sdev_ribbon) # Lower quantile for ribbon
+qupr_ribbon  = pnorm(+sdev_ribbon) # Lower quantile for ribbon
+alpha_ribbon = 0.2
+
+```
+
+
+
+```{r Packages}
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+
+
+```
+
+
+
+
+```{r Constants}
+month_2_sec = 2628000
+
+```
+
+
+
+
+```{r ReadAndAppend}
+ReadAppend_fun = function(path,n_site,n_case,case_desc){
+  return_df = NULL
+  for (s in sequence(n_site)){
+   case_up = s * n_case
+   case_lw = (s-1)*n_case + 1
+   case_now = c(case_lw:case_up)
+   df_now = data.table::fread(path[s])
+   df_now = df_now          %>% 
+            dplyr::mutate(case = case_when(case==1 ~ case_now[1],
+                                          case==2 ~ case_now[2],
+                                          case==3 ~ case_now[3],
+                                          case==4 ~ case_now[4]),
+                         desc = case_desc[case])
+   
+   if(is.null(return_df)){
+     return_df = df_now
+   }else{
+     return_df = rbind(return_df,df_now)
+   }
+  }
+  return(return_df)
+  
+}
+all_paths = c("hlm_paths","pft_paths","dbh_paths","fuel_paths")
+file_name = c("hlm1d-3sites.csv","bypft-3sites.csv","bydbh-3sites.csv","byfuel-3sites.csv")
+n_path = length(all_paths)
+for(p in sequence(n_path)){
+  p_now = get(all_paths[p])
+  f_now = file_name[p]
+  df_now = ReadAppend_fun(p_now,nsites,ncase,case_desc)
+  data.table::fwrite(df_now,file=file.path(main_path,f_now))
+}
+
+
+
+
+
+```
+
+
+
+
+```{r SomeFunctions}
+rename_fun = function(x){
+  x = gsub(pattern="fates_",replacement = "ctrl_",x)
+}
+
+delta_pct_fun = function(df,x){
+  ctrl_name = rename_fun(x)
+  df[[x]] = (df[[x]] - df[[ctrl_name]]) / df[[ctrl_name]] * 100
+  df[[x]] = ifelse(df[[x]] == Inf, NA, df[[x]])
+}
+
+delta_fun = function(df,x){
+  ctrl_name = rename_fun(x)
+  df[[x]] = df[[x]] - df[[ctrl_name]]
+}
+
+```
+
+
+
+
+
+```{r PlotDeltaByPFT, echo=FALSE}
+
+bypft = data.table::fread(file.path(main_path,file_name[2]))
+ctrl = bypft %>% filter(case %in% c(1,5,9))
+ctrl = ctrl                    %>% 
+       group_by(case,desc)     %>% 
+       slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
+ctrl = ctrl                    %>% 
+       select(-c(fates_mortality_cambialburn,
+                 fates_mortality_crownscorch,
+                 fates_mortality_rxcambial,
+                 fates_mortality_rxcrown))
+
+ctrl$fates_mortality = rowSums(ctrl[colnames(ctrl)[grepl("mortality",colnames(ctrl))]])
+
+       
+delta_vars = c("fates_nplant",
+               "fates_ddbh",
+               "fates_basalarea",
+               "fates_mortality")
+delta_desc = c("stem density",
+               "growth rate",
+               "basal area",
+               "mortality")
+
+n_delta = length(delta_vars)
+
+
+ctrl_bypft =  ctrl                       %>% 
+              select(all_of(delta_vars)) %>% 
+              rename_at(vars(fates_nplant:fates_mortality),rename_fun)
+
+treat_bypft = bypft                                   %>% 
+              filter(!case%in% c(1,5,9))              %>% 
+              select(-c(fates_mortality_cambialburn,
+                        fates_mortality_crownscorch,
+                        fates_mortality_rxcambial,
+                        fates_mortality_rxcrown))
+
+treat_bypft$fates_mortality = treat_bypft %>% select(starts_with("fates_mortality")) %>% rowSums()
+treat_bypft = treat_bypft %>% select(all_of(c("case",
+                                              "time",
+                                              "pft",
+                                              "desc",
+                                              delta_vars)))
+    
+
+delta_bypft = cbind(treat_bypft,ctrl_bypft)
+
+for(v in sequence(n_delta)){
+  var_now = delta_vars[v]
+  delta_bypft[[var_now]] = delta_pct_fun(delta_bypft,var_now)
+}
+
+rx_date  =  bypft                                 %>% 
+            filter(fates_mortality_rxfire>0)      %>% 
+            select(case,time)                     %>% 
+            distinct()                            %>% 
+            rename(rx_date = time)                %>% 
+            group_by(case)                        %>% 
+            mutate(lag_rxdate = rx_date - lag(rx_date),
+                   lag_rxdate = as.numeric(lag_rxdate)/month_2_sec)
+
+twofires_last = which(rx_date$lag_rxdate<2)
+rx_date = rx_date[-(twofires_last-1), ]
+ls_date = as.POSIXct("2020-12-01",tz="UTC")
+rx_delta = delta_bypft %>% filter(case %in% unique(rx_date$case))
+rx_cases = unique(rx_delta$case)
+
+delta_mean = NULL
+delta_sd   = NULL
+mean_now = FALSE
+for(n in rx_cases){
+  delta_now = rx_delta %>% filter(case==n)
+  breaks_now = rx_date$rx_date[rx_date$case==n]
+  breaks_now = c(breaks_now,ls_date)
+  n_bk = length(breaks_now)-1
+  labels = sprintf("RX%i",sequence(n_bk))
+  if(mean_now){
+    delta_now  = delta_now                                                 %>% 
+               mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
+               filter(!is.na(RXtrt_grp))                                 %>%
+               select(-time)                                             %>% 
+               group_by(case,desc,RXtrt_grp,pft)                         %>% 
+               summarize_all(mean,na.rm=TRUE)
+    delta_mean = rbind(delta_mean,delta_now)
+  }else{
+     delta_now  = delta_now                                                 %>% 
+               mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
+               filter(!is.na(RXtrt_grp))                                 %>%
+               select(-time)                                             %>% 
+               group_by(case,desc,RXtrt_grp,pft)                         %>% 
+               summarize_all(sd,na.rm=TRUE)
+     delta_sd = rbind(delta_sd,delta_now)
+   }
+}
+
+plot_df = delta_mean
+plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
+f_colpfts   = pftinfo$colour
+f_pftlabs   = pftinfo$short
+
+for(d in sequence(n_delta)){
+  f_vnam = delta_vars[d]
+  f_desc = delta_desc[d]
+  plot = ggplot(plot_df,aes_string(x = "desc",y=f_vnam,
+                   ymin=plot_df[[f_vnam]]-delta_sd[[f_vnam]],
+                   ymax=plot_df[[f_vnam]]+delta_sd[[f_vnam]],
+                   colour="pft",
+                   shape="RXtrt_grp")) +
+       geom_point(size=2.5) +
+       geom_errorbar(width=0)+
+       coord_flip() +
+       scale_colour_manual(values=f_colpfts,labels=f_pftlabs) +
+       ylab(paste0("Relative change in ", f_desc," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+  
+  
+  for (d in sequence(ndevice)){
+    f_output = paste0(f_vnam,"_RelativePCTChange.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = plot
+                    , device   = gg_device[d]
+                    , path     = pft_path
+                    , width    = gg_widthn*0.55
+                    , height   = gg_height*0.5
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+       
+
+  
+}
+
+
+            
+            
+
+
+
+
+
+
+
+
+
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
