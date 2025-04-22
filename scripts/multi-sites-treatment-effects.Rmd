@@ -34,7 +34,7 @@ case_desc = c("Blodgett-Control",
               "Teakettle-Control",
               "Teakettle-45-90-100-BA40",
               "Teakettle-Rx-InclusiveBW",
-              "Teakettle-Rx-SelectibeBW",
+              "Teakettle-Rx-SelectiveBW",
               "STEF-Control",
               "STEF-75-50-20-BA49p5",
               "STEF-Rx-InclusiveBW",
@@ -47,7 +47,7 @@ ncase = length(case_desc)/nsites
 
 
 
-```{r,label="make-dir"}
+```{r MakeDir}
 
 #plot path
 plot_main  = file.path(main_path,"Figures")
@@ -64,6 +64,14 @@ dummy = dir.create(mean_path   , recursive = TRUE, showWarnings = FALSE)
 ```
 
 
+
+```{r Packages}
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+
+
+```
 
 
 
@@ -114,7 +122,29 @@ npfts = nrow(pftinfo)
 
 
 
-```{r,label="plot-setting"}
+
+```{r DBHInfo}
+
+ndbhs = 13
+dbh_lwr = c(0,5,10,15,20,30,40,50,60,70,80,90,100)
+dbh_upr = c(dbh_lwr[-1],dbh_lwr[ndbhs]+2*max(diff(dbh_lwr)))
+dbh_labs = c( paste0("paste(",dbh_lwr[-ndbhs],"-",dbh_upr[-ndbhs],")")
+                        , paste0("paste(",dbh_lwr[ ndbhs],"-infinity)"))
+dbh_desc = c( paste0("paste(paste(",dbh_lwr[-ndbhs],"<=D*B*H)<",dbh_upr[-ndbhs],"*c*m)")
+                          , paste0("paste( D*B*H >=",dbh_lwr[ndbhs],"*c*m)"))
+
+dbh_labs_10     = c(dbh_labs[5:13], "paste(10-20)")
+dbh_labs_10    = parse(text=dbh_labs_10)
+names(dbh_labs_10) = c("5","6","7","8","9","10","11","12","13","4")
+
+dbh_labs = parse(text=dbh_labs)
+dbh_labs_10 = parse(text=dbh_labs_10)
+
+
+```
+
+
+```{r PlotSettings}
 
 gg_device  = c("png")     # Output devices to use (Check ggsave for acceptable formats)
 gg_depth   = 600          # Plot resolution (dpi)
@@ -151,19 +181,14 @@ alpha_ribbon = 0.2
 
 
 
-```{r Packages}
-library(ggplot2)
-library(tidyverse)
-library(lubridate)
 
-
-```
 
 
 
 
 ```{r Constants}
 month_2_sec = 2628000
+ha_2_m2 = 10000
 
 ```
 
@@ -218,10 +243,13 @@ rename_fun = function(x){
   x = gsub(pattern="fates_",replacement = "ctrl_",x)
 }
 
-delta_pct_fun = function(df,x){
+delta_pct_fun = function(df,x,quant_up,quant_lw){
   ctrl_name = rename_fun(x)
   df[[x]] = (df[[x]] - df[[ctrl_name]]) / df[[ctrl_name]] * 100
-  df[[x]] = ifelse(df[[x]] == Inf, NA, df[[x]])
+  df[[x]] = ifelse(df[[x]]==Inf, NA, df[[x]])
+  up_thresh = quantile(df[[x]],quant_up,na.rm=TRUE)
+  lw_thresh = quantile(df[[x]],quant_lw,na.rm=TRUE)
+  df[[x]] = ifelse(df[[x]] > up_thresh | df[[x]] < lw_thresh, NA, df[[x]])
 }
 
 delta_fun = function(df,x){
@@ -229,33 +257,70 @@ delta_fun = function(df,x){
   df[[x]] = df[[x]] - df[[ctrl_name]]
 }
 
+site_grab = function(desc){
+  site = sub("-.*","",desc) 
+}
+
+treatment_grab = function(desc){
+  if(grepl("[0-9]+-BA[0-9]+",desc)){treat = "Logging"}
+  else if(grepl("Rx-Inclusive",desc)){treat="Rx-Inclusive"}
+  else if(grepl("Rx-Selective",desc)){treat="Rx-Selective"}
+  else{treat = "None"}
+ # treat = if_else(grepl("[0-9]+-BA",desc),"Logging","Rx-fire")
+}
+
+find_mort = function(x,n){
+   mort_mon = ifelse( test = n == 0, yes = NA, no = pmin(1.,x/n/12.))
+   mort_year = ifelse(is.na(mort_mon),NA, 100. * (1. - (1. - mort_mon)^12))
+   return(mort_year)
+}#end function find_mort
+
 ```
 
 
 
 
 
-```{r PlotDeltaByPFT, echo=FALSE}
+```{r ByPFTDataProcessing}
 
 bypft = data.table::fread(file.path(main_path,file_name[2]))
+bypft = bypft                    %>% 
+        select(-c(fates_mortality_cambialburn,
+                 fates_mortality_crownscorch,
+                 fates_mortality_rxcambial,
+                 fates_mortality_rxcrown))
+mortout_pft    = names(bypft)[grep(pattern="mortality",x=names(bypft))]
+bypft  =     bypft                                              %>% 
+             mutate(month = month(time)
+                   ,year  = year(time))                         %>% 
+             mutate_at(c(mortout_pft),
+                       ~ find_mort(x=.x,
+                                   n= ifelse(.x=="fates_mortality_ustory", 
+                                                   .data$fates_nplant_ustory, 
+                                                   .data$fates_nplant)))
+bypft$fates_mortality = bypft %>% select(starts_with("fates_mortality")) %>% rowSums()
+
+bypft = bypft                                                                            %>% 
+mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
+                           NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
+       fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
+                           NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
+      fates_ddbh         = ifelse(is.na(fates_nplant) | fates_nplant==0, 
+                           NA, fates_ddbh*ha_2_m2/fates_nplant))
+
 ctrl = bypft %>% filter(case %in% c(1,5,9))
 ctrl = ctrl                    %>% 
        group_by(case,desc)     %>% 
        slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
-ctrl = ctrl                    %>% 
-       select(-c(fates_mortality_cambialburn,
-                 fates_mortality_crownscorch,
-                 fates_mortality_rxcambial,
-                 fates_mortality_rxcrown))
 
-ctrl$fates_mortality = rowSums(ctrl[colnames(ctrl)[grepl("mortality",colnames(ctrl))]])
 
-       
 delta_vars = c("fates_nplant",
+               "fates_nplant_ustory",
                "fates_ddbh",
                "fates_basalarea",
                "fates_mortality")
 delta_desc = c("stem density",
+               "understory stem density",
                "growth rate",
                "basal area",
                "mortality")
@@ -268,13 +333,8 @@ ctrl_bypft =  ctrl                       %>%
               rename_at(vars(fates_nplant:fates_mortality),rename_fun)
 
 treat_bypft = bypft                                   %>% 
-              filter(!case%in% c(1,5,9))              %>% 
-              select(-c(fates_mortality_cambialburn,
-                        fates_mortality_crownscorch,
-                        fates_mortality_rxcambial,
-                        fates_mortality_rxcrown))
+              filter(!case%in% c(1,5,9))             
 
-treat_bypft$fates_mortality = treat_bypft %>% select(starts_with("fates_mortality")) %>% rowSums()
 treat_bypft = treat_bypft %>% select(all_of(c("case",
                                               "time",
                                               "pft",
@@ -283,72 +343,92 @@ treat_bypft = treat_bypft %>% select(all_of(c("case",
     
 
 delta_bypft = cbind(treat_bypft,ctrl_bypft)
+delta_bypft = delta_bypft                    %>% 
+              mutate(site=site_grab(desc))
+delta_bypft$treatment = unlist(lapply(delta_bypft$desc,treatment_grab))
+
 
 for(v in sequence(n_delta)){
   var_now = delta_vars[v]
-  delta_bypft[[var_now]] = delta_pct_fun(delta_bypft,var_now)
+  delta_bypft[[var_now]] = delta_pct_fun(delta_bypft,var_now,0.95,0.05)
 }
 
-rx_date  =  bypft                                 %>% 
-            filter(fates_mortality_rxfire>0)      %>% 
-            select(case,time)                     %>% 
-            distinct()                            %>% 
-            rename(rx_date = time)                %>% 
-            group_by(case)                        %>% 
-            mutate(lag_rxdate = rx_date - lag(rx_date),
-                   lag_rxdate = as.numeric(lag_rxdate)/month_2_sec)
+treated_case = unique(delta_bypft$case)
 
-twofires_last = which(rx_date$lag_rxdate<2)
-rx_date = rx_date[-(twofires_last-1), ]
-ls_date = as.POSIXct("2020-12-01",tz="UTC")
-rx_delta = delta_bypft %>% filter(case %in% unique(rx_date$case))
-rx_cases = unique(rx_delta$case)
+#rx_date  =  bypft                                 %>% 
+#            filter(fates_mortality_rxfire>0)      %>% 
+#            select(case,time)                     %>% 
+#            distinct()                            %>% 
+#            rename(rx_date = time)                %>% 
+#            group_by(case)                        %>% 
+#            mutate(lag_rxdate = rx_date - lag(rx_date),
+#                   lag_rxdate = as.numeric(lag_rxdate)/month_2_sec)
 
-delta_mean = NULL
-delta_sd   = NULL
-mean_now = FALSE
-for(n in rx_cases){
-  delta_now = rx_delta %>% filter(case==n)
-  breaks_now = rx_date$rx_date[rx_date$case==n]
-  breaks_now = c(breaks_now,ls_date)
-  n_bk = length(breaks_now)-1
-  labels = sprintf("RX%i",sequence(n_bk))
-  if(mean_now){
-    delta_now  = delta_now                                                 %>% 
-               mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
-               filter(!is.na(RXtrt_grp))                                 %>%
-               select(-time)                                             %>% 
-               group_by(case,desc,RXtrt_grp,pft)                         %>% 
+#twofires_last = which(rx_date$lag_rxdate<2)
+#rx_date = rx_date[-(twofires_last-1), ]
+#ls_date = as.POSIXct("2020-12-01",tz="UTC")
+#rx_delta = delta_bypft %>% filter(case %in% unique(rx_date$case))
+#rx_cases = unique(rx_delta$case)
+
+deltabypft_mean = NULL
+deltabypft_sd   = NULL
+
+for(n in treated_case){
+  delta_now = delta_bypft %>% filter(case==n)
+ 
+  #breaks_now = rx_date$rx_date[rx_date$case==n]
+  #breaks_now = c(breaks_now,ls_date)
+  #n_bk = length(breaks_now)-1
+  #labels = sprintf("RX%i",sequence(n_bk))
+    mean_pft  = delta_now                                                 %>% 
+               #mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
+               #filter(!is.na(RXtrt_grp))                                 %>%
+               select(-c(time,case,desc))                                %>% 
+               group_by(site,treatment,pft)                              %>% 
                summarize_all(mean,na.rm=TRUE)
-    delta_mean = rbind(delta_mean,delta_now)
-  }else{
-     delta_now  = delta_now                                                 %>% 
-               mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
-               filter(!is.na(RXtrt_grp))                                 %>%
-               select(-time)                                             %>% 
-               group_by(case,desc,RXtrt_grp,pft)                         %>% 
+    
+    deltabypft_mean = rbind(deltabypft_mean,mean_pft)
+    
+    sd_pft  = delta_now                                                 %>% 
+               #mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
+               #filter(!is.na(RXtrt_grp))                                 %>%
+               select(-c(time,case,desc))                                %>% 
+               group_by(site,treatment,pft)                              %>% 
                summarize_all(sd,na.rm=TRUE)
-     delta_sd = rbind(delta_sd,delta_now)
-   }
+     deltabypft_sd = rbind(deltabypft_sd,sd_pft)
+    
+     
 }
 
-plot_df = delta_mean
+
+
+```
+
+
+
+```{r PlotDeltaByPFTAndTreatment, echo=FALSE}
+
+
+plot_df = deltabypft_mean
 plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
 f_colpfts   = pftinfo$colour
 f_pftlabs   = pftinfo$short
+names(f_pftlabs) = c("1","2","3","4")
 
 for(d in sequence(n_delta)){
   f_vnam = delta_vars[d]
   f_desc = delta_desc[d]
-  plot = ggplot(plot_df,aes_string(x = "desc",y=f_vnam,
-                   ymin=plot_df[[f_vnam]]-delta_sd[[f_vnam]],
-                   ymax=plot_df[[f_vnam]]+delta_sd[[f_vnam]],
-                   colour="pft",
-                   shape="RXtrt_grp")) +
-       geom_point(size=2.5) +
+  plot = ggplot(plot_df,aes_string(x = "site",y=f_vnam,
+                   ymin=plot_df[[f_vnam]]-deltabypft_sd[[f_vnam]],
+                   ymax=plot_df[[f_vnam]]+deltabypft_sd[[f_vnam]],
+                   colour="treatment")) +
+       facet_wrap(.~pft,labeller=labeller(pft=f_pftlabs))+
+       geom_point(size=2) +
        geom_errorbar(width=0)+
+       geom_hline(yintercept = 0, color="black",linetype=2)+
        coord_flip() +
-       scale_colour_manual(values=f_colpfts,labels=f_pftlabs) +
+       #scale_colour_manual(values=f_colpfts,labels=f_pftlabs) +
+       scale_colour_manual(values=ens_colour) +
        ylab(paste0("Relative change in ", f_desc," (%)")) +
        xlab("") +
        theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
@@ -364,12 +444,12 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_RelativePCTChange.",gg_device[d])
+    f_output = paste0(f_vnam,"_PFTSplit-outlierRemoved.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
                     , path     = pft_path
-                    , width    = gg_widthn*0.55
+                    , width    = gg_widthn*0.5
                     , height   = gg_height*0.5
                     , units    = gg_units
                     , dpi      = gg_depth
@@ -380,13 +460,93 @@ for(d in sequence(n_delta)){
   
 }
 
-
-            
-            
+```
 
 
 
 
+```{r OverallEffectDataProcessing}
+
+overall = data.table::fread(file.path(main_path,file_name[2]))
+overall = overall                        %>% 
+          group_by(case,desc,time)       %>% 
+          select(-pft)                   %>% 
+          summarize_all(sum,na.rm=TRUE)  %>% 
+          ungroup()
+
+overall = overall                                    %>% 
+          select(-c(fates_mortality_cambialburn,
+                    fates_mortality_crownscorch,
+                    fates_mortality_rxcambial,
+                    fates_mortality_rxcrown))
+
+overall = overall                                 %>% 
+          mutate(month = month(time)
+                ,year  = year(time))              %>% 
+             mutate_at(c(mortout_pft),
+                       ~ find_mort(x=.x,
+                                   n= ifelse(.x=="fates_mortality_ustory", 
+                                                   .data$fates_nplant_ustory, 
+                                                   .data$fates_nplant)))
+overall$fates_mortality = overall %>% select(starts_with("fates_mortality")) %>% rowSums()
+
+overall = overall                                                                           %>% 
+mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
+                           NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
+       fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
+                           NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
+      fates_ddbh         = ifelse(is.na(fates_nplant) | fates_nplant==0, 
+                           NA, fates_ddbh*ha_2_m2/fates_nplant))
+
+ctrl_all = overall %>% filter(case %in% c(1,5,9))
+ctrl_all = ctrl_all                %>% 
+           group_by(case,desc)     %>% 
+           slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
+
+ctrl_all =  ctrl_all                       %>% 
+            select(all_of(delta_vars))     %>% 
+            rename_at(vars(fates_nplant:fates_mortality),rename_fun)
+
+treat_all = overall                                   %>% 
+            filter(!case%in% c(1,5,9))             
+
+treat_all = treat_all %>% select(all_of(c("case",
+                                          "time",
+                                          "desc",
+                                        delta_vars)))
+    
+
+delta_treat = cbind(treat_all,ctrl_all)
+delta_treat = delta_treat                   %>% 
+              mutate(site=site_grab(desc))
+delta_treat$treatment = unlist(lapply(delta_treat$desc,treatment_grab))
+
+
+for(v in sequence(n_delta)){
+  var_now = delta_vars[v]
+  delta_treat[[var_now]] = delta_pct_fun(delta_treat,var_now,0.95,0.05)
+}
+
+delta_mean = NULL
+delta_sd   = NULL
+
+for(n in treated_case){
+  delta_now = delta_treat %>% filter(case==n)
+  mean_now  = delta_now                                             %>% 
+              select(-c(time,case,desc))                            %>% 
+              group_by(site,treatment)                              %>% 
+              summarize_all(mean,na.rm=TRUE)
+    
+    delta_mean = rbind(delta_mean,mean_now)
+    
+    sd_now  =  delta_now                                             %>% 
+               select(-c(time,case,desc))                            %>% 
+               group_by(site,treatment)                              %>% 
+               summarize_all(sd,na.rm=TRUE)
+    delta_sd = rbind(delta_sd,sd_now)
+    
+     
+}
 
 
 
@@ -396,4 +556,197 @@ for(d in sequence(n_delta)){
 
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r PlotDeltaByTreatment, echo=FALSE}
+
+
+plot_df = delta_mean
+
+for(d in sequence(n_delta)){
+  f_vnam = delta_vars[d]
+  f_desc = delta_desc[d]
+  plot = ggplot(plot_df,aes_string(x = "site",y=f_vnam,
+                   ymin=plot_df[[f_vnam]]-delta_sd[[f_vnam]],
+                   ymax=plot_df[[f_vnam]]+delta_sd[[f_vnam]],
+                   colour="treatment")) +
+       geom_point(size=2) +
+       geom_errorbar(width=0)+
+       geom_hline(yintercept = 0, color="black",linetype=2)+
+       coord_flip() +
+       scale_colour_manual(values=ens_colour) +
+       ylab(paste0("Relative change in ", f_desc," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+  
+  
+  for (d in sequence(ndevice)){
+    f_output = paste0(f_vnam,"_byTreatment-outlierRemoved.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.5
+                    , height   = gg_height*0.4
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+       
+
+  
+}
+
+
+
+```
+
+
+
+```{r DeltaGrowthByDBHDataProcessing}
+
+bydbh = data.table::fread(file.path(main_path,file_name[3]))
+
+bydbh = bydbh                          %>% 
+mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
+                                  NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
+       fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
+                                  NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
+       fates_ddbh        = ifelse(is.na(fates_nplant) | fates_nplant==0, 
+                                  NA, fates_ddbh*ha_2_m2/fates_nplant))
+
+ctrl_growth = bydbh %>% filter(case %in% c(1,5,9))
+ctrl_growth = ctrl_growth                    %>% 
+              group_by(case,desc)            %>% 
+              slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
+
+
+growth_vars = c("fates_ddbh",
+               "fates_ddbh_canopy",
+               "fates_ddbh_ustory")
+growth_desc = c(
+               "growth rate",
+               "growth rate canopy",
+               "growth rate understory")
+
+n_delta = length(growth_vars)
+
+
+ctrl_growth =  ctrl_growth                     %>% 
+               select(all_of(growth_vars))     %>% 
+               rename_at(vars(fates_ddbh:fates_ddbh_ustory),rename_fun)
+
+treat_growth = bydbh                                  %>% 
+               filter(!case%in% c(1,5,9))             
+
+treat_growth = treat_growth %>% select(all_of(c("case",
+                                                "time",
+                                                "dbh",
+                                                "desc",
+                                              growth_vars)))
+    
+
+delta_growth = cbind(treat_growth,ctrl_growth)
+delta_growth = delta_growth                    %>% 
+              mutate(site=site_grab(desc))
+delta_growth$treatment = unlist(lapply(delta_growth$desc,treatment_grab))
+
+
+for(v in sequence(n_delta)){
+  var_now = growth_vars[v]
+  delta_growth[[var_now]] = delta_pct_fun(delta_growth,var_now,0.9,0.1)
+}
+
+delta_growth_12 = delta_growth %>% filter(dbh!=1)
+
+deltagrowth_mean = NULL
+deltagrowth_sd   = NULL
+
+for(n in treated_case){
+  delta_now = delta_growth_12 %>% filter(case==n)
+ 
+  mean_growth  = delta_now                                              %>% 
+              select(-c(time,case,desc))                                %>% 
+              group_by(site,treatment,dbh)                              %>% 
+              summarize_all(mean,na.rm=TRUE)
+    
+  deltagrowth_mean = rbind(deltagrowth_mean,mean_growth)
+    
+  sd_growth  = delta_now                                                 %>% 
+               select(-c(time,case,desc))                                %>% 
+               group_by(site,treatment,dbh)                              %>% 
+               summarize_all(sd,na.rm=TRUE)
+  deltagrowth_sd = rbind(deltagrowth_sd,sd_growth)
+    
+     
+}
+
+
+
+
+```
+
+
+
+
+
+```{r PlotDeltaGrowthBySize}
+
+plot_df = delta_growth_12
+plot_df$dbh = factor(plot_df$dbh,levels=unique(plot_df$dbh))
+
+for(d in sequence(n_delta)){
+  f_vnam = growth_vars[d]
+  f_desc = growth_desc[d]
+  plot = ggplot(plot_df,aes_string(x = "dbh",y=f_vnam,
+                   colour="treatment")) +
+       facet_wrap(.~site)+#,scales="free")+
+       geom_boxplot(outlier.shape = NA) +
+       geom_hline(yintercept = 0, color="black",linetype=2)+
+       scale_x_discrete(labels=dbh_labs[2:13]) +
+       scale_colour_manual(values=ens_colour) +
+       ylab(paste0("Relative change in ", f_desc," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , angle  = 90
+                                              , hjust  = 1
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+  
+  
+  for (d in sequence(ndevice)){
+    f_output = paste0(f_vnam,"_deltabySZ-outlierRemoved.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = plot
+                    , device   = gg_device[d]
+                    , path     = size_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*0.7
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+       
+
+  
+}
+
+
+```
+
