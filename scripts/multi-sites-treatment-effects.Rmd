@@ -75,7 +75,7 @@ library(lubridate)
 
 
 
-```{r UserPFTInfo}
+```{r UserPFTFuelInfo}
 ## PFT info
 user_pftinfo  = TRUE
 
@@ -118,6 +118,56 @@ pftinfo[[n]] = list( id     = 4
 pftinfo  = do.call(what=rbind,args=lapply(X=pftinfo,FUN=as_tibble,stringsAsFactors=FALSE))
 npfts = nrow(pftinfo)
 
+
+# List of fuels, in case user_fuleinfo is TRUE
+n               = 0
+fuelinfo        = list()
+n               = n + 1
+fuelinfo[[n]]   = list( id      = 1
+                      , key     = "fuel1"
+                      , short   = "Twig"
+                      , desc    = "Fuel from twig" 
+                      , colour  = "#E69F00"
+                      , parse   = "F*u*e*l[T*w*i*g]")
+n               = n + 1
+fuelinfo[[n]]   = list( id      = 2
+                      , key     = "fuel2"
+                      , short   = "SBranch"
+                      , desc    = "Fuel from small branch" 
+                      , colour  = "#56B4E9"
+                      , parse   = "F*u*e*l[S*b*r*a*n*c*h]")
+n               = n + 1
+fuelinfo[[n]]   = list( id      = 3
+                      , key     = "fuel3"
+                      , short   = "LBranch"
+                      , desc    = "Fuel from large branch" 
+                      , colour  = "#0072B2"
+                      , parse   = "F*u*e*l[L*b*r*a*n*c*h]")
+n               = n + 1
+fuelinfo[[n]]   = list( id      = 4
+                      , key     = "fuel4"
+                      , short   = "Trunk"
+                      , desc    = "Fuel from trunk" 
+                      , colour  = "#D55E00"
+                      , parse   = "F*u*e*l[T*r*u*n*k]")
+n               = n + 1
+fuelinfo[[n]]   = list( id      = 5
+                      , key     = "fuel5"
+                      , short   = "DeadLeaf"
+                      , desc    = "Fuel from dead leaf" 
+                      , colour  = "#999999"
+                      , parse   = "F*u*e*l[D*l*e*a*f]")
+n               = n + 1
+fuelinfo[[n]]   = list( id      = 6
+                      , key     = "fuel6"
+                      , short   = "LiveGrass"
+                      , desc    = "Fuel from live grass" 
+                      , colour  = "#009E73"
+                      , parse   = "F*u*e*l[L*g*r*a*s*s]") #end of fuel list
+
+fuelinfo  = do.call(what=rbind,args=lapply(X=fuelinfo,FUN=as_tibble,stringsAsFactors=FALSE))
+nfuels = nrow(fuelinfo)
+
 ```
 
 
@@ -142,6 +192,9 @@ dbh_labs_10 = parse(text=dbh_labs_10)
 
 
 ```
+
+
+
 
 
 ```{r PlotSettings}
@@ -178,9 +231,6 @@ qupr_ribbon  = pnorm(+sdev_ribbon) # Lower quantile for ribbon
 alpha_ribbon = 0.2
 
 ```
-
-
-
 
 
 
@@ -343,6 +393,12 @@ treat_bypft = treat_bypft %>% select(all_of(c("case",
     
 
 delta_bypft = cbind(treat_bypft,ctrl_bypft)
+#delta_bypft = delta_bypft                    %>% 
+#              mutate(year=year(time))        %>% 
+#              select(-time)                  %>% 
+#              group_by(case,desc,year,pft)   %>% 
+#              summarize_all(mean,na.rm=TRUE) %>% 
+#              ungroup()
 delta_bypft = delta_bypft                    %>% 
               mutate(site=site_grab(desc))
 delta_bypft$treatment = unlist(lapply(delta_bypft$desc,treatment_grab))
@@ -444,7 +500,7 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_PFTSplit-outlierRemoved.",gg_device[d])
+    f_output = paste0(f_vnam,"_PFTSplit-smoothed.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
@@ -612,6 +668,8 @@ for(d in sequence(n_delta)){
 
 
 
+
+
 ```{r DeltaGrowthByDBHDataProcessing}
 
 bydbh = data.table::fread(file.path(main_path,file_name[3]))
@@ -657,13 +715,19 @@ treat_growth = treat_growth %>% select(all_of(c("case",
 
 delta_growth = cbind(treat_growth,ctrl_growth)
 delta_growth = delta_growth                    %>% 
+               mutate(year=year(time))         %>% 
+               select(-time)                   %>% 
+               group_by(case,desc,year,dbh)    %>% 
+               summarize_all(mean,na.tm=TRUE)
+               
+delta_growth = delta_growth                    %>% 
               mutate(site=site_grab(desc))
 delta_growth$treatment = unlist(lapply(delta_growth$desc,treatment_grab))
 
 
 for(v in sequence(n_delta)){
   var_now = growth_vars[v]
-  delta_growth[[var_now]] = delta_pct_fun(delta_growth,var_now,0.9,0.1)
+  delta_growth[[var_now]] = delta_pct_fun(delta_growth,var_now,0.95,0.05)
 }
 
 delta_growth_12 = delta_growth %>% filter(dbh!=1)
@@ -731,7 +795,7 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_deltabySZ-outlierRemoved.",gg_device[d])
+    f_output = paste0(f_vnam,"_deltabySZ-smoothed.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
@@ -746,6 +810,162 @@ for(d in sequence(n_delta)){
 
   
 }
+
+
+```
+
+
+
+
+```{r DeltaFuelProcessing}
+
+hlm1d = data.table::fread(file.path(main_path,file_name[1]))
+fuel  = data.table::fread(file.path(main_path,file_name[4]))
+
+fuel$fuel = factor(fuel$fuel,levels=unique(fuel$fuel))
+
+fuel_notrunk = fuel                            %>% 
+               filter(fuel!=4)                 %>% 
+               group_by(case,desc,time)        %>% 
+               select(-fuel)                   %>% 
+               summarize_all(sum,na.rm=TRUE)   %>% 
+               ungroup()                       %>% 
+               rename(fates_fuel_notrunk = 
+                      fates_fuel_amount)
+fuel_trunk   = fuel                      %>% 
+               filter(fuel==4)           %>% 
+               select(-fuel)             %>% 
+               rename(fates_fuel_trunk =
+                      fates_fuel_amount)
+
+canopy_fuel  =     hlm1d                              %>% 
+               select(case,
+                      time,
+                      desc,
+                      fates_canopy_fuel_amount,
+                      fates_canopy_fuel_bulkd) 
+
+fuel_df  = fuel_notrunk                          %>% 
+           left_join(fuel_trunk,
+                     by=c("case","desc","time")) %>% 
+           left_join(canopy_fuel,
+                     by=c("case","desc","time"))
+
+ctrl_fuel = fuel_df %>% filter(case %in% c(1,5,9))
+ctrl_fuel = ctrl_fuel                      %>% 
+            group_by(case,desc)            %>% 
+            slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
+
+
+fuel_vars = c("fates_fuel_notrunk",
+              "fates_fuel_trunk",
+              "fates_canopy_fuel_amount",
+              "fates_canopy_fuel_bulkd")
+fuel_desc = c("non-trunk fuel load",
+              "trunk fuel load",
+              "canopy fuel load",
+              "canopy bulk density")
+
+n_fuel = length(fuel_vars)
+
+
+ctrl_fuel =  ctrl_fuel                    %>% 
+             select(all_of(fuel_vars))     %>% 
+             rename_at(vars(fates_fuel_notrunk:fates_canopy_fuel_bulkd),rename_fun)
+
+treat_fuel = fuel_df                                 %>% 
+             filter(!case%in% c(1,5,9))             
+  
+delta_fuel = cbind(treat_fuel,ctrl_fuel)
+
+delta_fuel = delta_fuel                    %>% 
+             mutate(site=site_grab(desc))
+delta_fuel$treatment = unlist(lapply(delta_fuel$desc,treatment_grab))
+
+
+for(v in sequence(n_fuel)){
+  var_now = fuel_vars[v]
+  delta_fuel[[var_now]] = delta_pct_fun(delta_fuel,var_now,1,0)
+}
+deltafuel_mean   = NULL
+deltafuel_sd     = NULL
+
+for(n in treated_case){
+  delta_now = delta_fuel %>% filter(case==n)
+ 
+  mean_fuel  = delta_now                                            %>% 
+              select(-c(time,case,desc))                            %>% 
+              group_by(site,treatment)                              %>% 
+              summarize_all(mean,na.rm=TRUE)
+    
+  deltafuel_mean = rbind(deltafuel_mean,mean_fuel)
+    
+  sd_fuel  = delta_now                                             %>% 
+             select(-c(time,case,desc))                            %>% 
+             group_by(site,treatment)                              %>% 
+             summarize_all(sd,na.rm=TRUE)
+  deltafuel_sd = rbind(deltafuel_sd,sd_fuel)
+    
+     
+}
+
+
+```
+
+
+
+
+
+```{r PlotDeltaFuel, echo=FALSE}
+
+
+plot_df = deltafuel_mean
+
+for(d in sequence(n_fuel)){
+  f_vnam = fuel_vars[d]
+  f_desc = fuel_desc[d]
+  plot = ggplot(plot_df,aes_string(x = "site",y=f_vnam,
+                   ymin=plot_df[[f_vnam]]-deltafuel_sd[[f_vnam]],
+                   ymax=plot_df[[f_vnam]]+deltafuel_sd[[f_vnam]],
+                   colour="treatment")) +
+       geom_point(size=2) +
+       geom_errorbar(width=0)+
+       geom_hline(yintercept = 0, color="black",linetype=2)+
+       coord_flip() +
+       scale_colour_manual(values=ens_colour) +
+       ylab(paste0("Relative change in ", f_desc," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+  
+  
+  for (d in sequence(ndevice)){
+    f_output = paste0(f_vnam,"_delta.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.5
+                    , height   = gg_height*0.4
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+       
+
+  
+}
+
+
+
 
 
 ```
