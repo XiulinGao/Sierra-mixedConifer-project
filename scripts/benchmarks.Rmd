@@ -1,0 +1,772 @@
+---
+title: "Benchmarks"
+author: "Jessica Katz"
+date: "2025-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r configs}
+## Plotting colors for treatments
+trt_cols <- list(None = 'grey', Burn = '#D55E00', 'Thin' = '#0072B2', `Burn+Thin` = '#42017C', Control = 'grey')
+pft_cols <- list(cedar = '#117733', white_pine = '#CC6677', yellow_pine = '#DDCC77', fir = '#88CCEE', `Douglas Fir` = '#882255') 
+
+## Dodge for position_dodge argument to plotting
+dodge <- 0.5
+
+## Treatment dates for each site
+trt_dates = list(
+  Blodgett = list(
+    Burn = c(2002, 2009, 2017),
+    Thin = c(2002, 2019),
+    `Burn+Thin` = c(2002, 2018)
+  ),
+  
+  STEF = list(
+    Burn = c(2013),
+    Thin = c(2011)
+  )
+)
+```
+
+
+```{r dependencies}
+library(lme4)
+library(emmeans)
+library(ggplot2)
+library(readr)
+library(stringr)
+
+site <- 'Blodgett'
+```
+
+```{r functions}
+
+### Function to compare treatment means to control means
+make_emm_df <- function(df, compare_column, var, ref, rndm_fx = NULL){
+  # Make the variable of interest a factor with specified reference level
+  df[[compare_column]] <- factor(df[[compare_column]])
+  df[[compare_column]] <- relevel(df[[compare_column]], ref = ref)
+  
+  # Regress outcome on variable of interest
+  if(is.null(rndm_fx)){
+    mod <- lm(paste0(var, '~', compare_column), data = df)
+  }else{
+    df[[rndm_fx]] <- factor(df[[rndm_fx]])
+    mod <- lmer(paste0(var, '~', compare_column, '+ (1|', rndm_fx, ')'), data = df)
+  }
+  
+  emm <- emmeans(mod, reformulate(compare_column, 'pairwise'), adjust = "none")
+  
+  # Results to dataframe
+  emm_df <- as.data.frame(emm$emmeans)
+  ref_value <- emm_df$emmean[emm_df[[compare_column]] == ref]
+  
+  # Add percent difference
+  emm_df$percent_diff <- 100 * (emm_df$emmean - ref_value) / ref_value
+  
+  # Calculate percent difference for confidence intervals
+  emm_df$lowerCL_percent_diff <- 100 * (emm_df$lower.CL - ref_value) / ref_value
+  emm_df$upperCL_percent_diff <- 100 * (emm_df$upper.CL - ref_value) / ref_value
+  
+  # Calculate standard error on percent difference
+  # Initialize column
+  emm_df$se_percent_diff <- NA
+  
+  # Loop through all rows (skip the reference/control row)
+  for (i in 1:nrow(emm_df)) {
+    if (emm_df[[compare_column]][i] != ref) {
+      mu_t <- emm_df$emmean[i]
+      mu_c <- emm_df$emmean[emm_df[[compare_column]] == ref]
+      
+      se_t <- emm_df$SE[i]
+      se_c <- emm_df$SE[emm_df[[compare_column]] == ref]
+      
+      # Derivatives
+      dfd_mt <- 100 / mu_c
+      dfd_mc <- -100 * mu_t / (mu_c^2)
+      
+      # Approximate variance using delta method
+      var_pd <- (dfd_mt^2) * (se_t^2) + (dfd_mc^2) * (se_c^2)
+      
+      # SE of percent difference
+      emm_df$se_percent_diff[i] <- sqrt(var_pd)
+    }
+  }
+  
+  return(list(emm_df, as.data.frame(emm$contrasts)))
+}
+
+
+```
+
+
+## Benchmark 1: Basal Area
+
+There are three potential benchmarks for basal area:
+
+1. Absolute basal area of control
+2. Change in basal area over time in the Control
+3. Difference between Treatments and Control at each timestep
+
+
+### Control: absolute basal area and change over time
+Change over time is references to the first year. E.g., in the case of STEF, the percent change associated with 2018 is the percent change in BA in 2018 relative to 2012. 
+
+```{r cntrl_ba}
+
+ba_by_unit <- read.csv(file.path('..', 'data', 'Benchmarking_data', site, 'ba_by_unit_year.csv'))
+
+# Subset control plots
+cntrl <- ba_by_unit[ba_by_unit$Treatment=='None',]
+
+ref_year <- as.character(min(cntrl$Year))
+
+## Include a random effect for unit because measurements are repeated on units
+cntrl_benchmarks <- make_emm_df(cntrl, compare_column = 'Year', 
+                                var = 'BAperTree_m2ha', ref = ref_year,
+                                rndm_fx = 'Unit')
+print(cntrl_benchmarks)
+
+```
+
+### Treatment: difference in BA at different times, relative to the Control
+Here, we create a benchmark (percent difference between Control and each Treatment) for each measurement year. 
+```{r trt_ba}
+
+## Initialize dataframes to append yearly results to
+ba_means_all_years <- data.frame()
+ba_contrasts_all_years <- data.frame()
+
+for(year in unique(ba_by_unit$Year)){
+  # Get means and contrasts for year
+   year_outs <- make_emm_df(ba_by_unit[ba_by_unit$Year==year,],
+                           compare_column = 'Treatment',
+                           var = 'BAperTree_m2ha', 
+                           ref = 'None')
+  # Add a Year column
+  year_outs[[1]]$Year <- year
+  year_outs[[2]]$Year <- year
+  
+  # Bind to previous years
+  ba_means_all_years <- rbind(ba_means_all_years, year_outs[[1]])
+  ba_contrasts_all_years <- rbind(ba_contrasts_all_years, year_outs[[2]])
+}
+
+# Timeseries of absolute BAs and percent differences between control and treatment
+print(ba_means_all_years)
+
+# Contrasts dataframe is mostly informational
+print(ba_contrasts_all_years)
+
+```
+
+For STEF, only Thin should be benchmarked in 2012 because units weren't burned until 2013. All Treatments can be benchmarked for 2014, 2016, and 2018.
+
+
+### BA visualizations
+```{r ba_timeseries}
+## Visualize basal area by time and treatment
+ba_time_plot <- ggplot(ba_means_all_years,
+              aes(x=Year, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent SE
+                  col=Treatment,fill=Treatment))  
+  
+  # Vertical lines are treatment dates
+  for(t in names(trt_dates[[site]])){
+    ba_time_plot <- ba_time_plot +
+      geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
+  }
+ba_time_plot <- ba_time_plot + 
+  geom_line() + geom_ribbon(color = NA, alpha = 0.25) +
+  scale_fill_manual(values=unlist(trt_cols), name='Treatment',
+                      breaks = c('None', 'Burn', 'Thin', 'Burn+Thin'))+
+  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+  xlab("Year") +
+  ylab("Unit basal area (m2/ha)") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank())
+  
+print(ba_time_plot)
+
+```
+```{r ba_cntrl_diffs}
+## Visualize $ difference in Treated vs Control basal area over time
+ba_cntl_diffs <- ggplot(cntrl_benchmarks[[1]][cntrl_benchmarks[[1]]$Year!=ref_year,],
+              aes(x=Year, y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
+  xlab("Year") +
+  ylab("% difference from reference year unit basal area") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank())
+  
+print(ba_cntl_diffs)
+```
+
+
+```{r ba_trt_diffs}
+## Visualize $ difference in Treated vs Control basal area over time
+ba_trt_diffs <- ggplot(ba_means_all_years[ba_means_all_years$Treatment!='None',],
+              aes(x=Year, y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff, 
+                  col=Treatment)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(position = position_dodge(dodge)) + geom_errorbar(position = position_dodge(dodge)) +
+  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+  xlab("Year") +
+  ylab("% difference from Control unit basal area") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank())
+
+# Vertical lines for treatment dates
+for(t in names(trt_dates[[site]])){
+  ba_trt_diffs <- ba_trt_diffs +
+    geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
+  }
+  
+print(ba_trt_diffs)
+```
+
+## Benchmark 2: Size Distribution
+```{r cntrl_size}
+
+sizeDist_by_unit <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'sizeDist_by_unit_year.csv'))
+
+# Size class as factor with order
+sizeDist_by_unit$Size.Class <- factor(sizeDist_by_unit$Size.Class, unique(sizeDist_by_unit$Size.Class))
+
+# Subset control plots
+cntrl <- sizeDist_by_unit[sizeDist_by_unit$Treatment=='None',]
+
+ref_year <- as.character(min(cntrl$Year))
+
+## Initialize dataframes to append yearly results to
+size_means_cntrl <- data.frame()
+size_contrasts_cntrl <- data.frame()
+
+for(size in unique(cntrl$Size.Class)){
+  # Get means and contrasts for size class
+   size_outs <- make_emm_df(cntrl[cntrl$Size.Class==size,],
+                           compare_column = 'Year',
+                           var = 'TPH', 
+                           ref = ref_year, rndm_fx = 'Unit')
+  # Add a Year column
+  size_outs[[1]]$Size_class <- size
+  size_outs[[2]]$Size_class <- size
+  
+  # Bind to previous years
+  size_means_cntrl <- rbind(size_means_cntrl, size_outs[[1]])
+  size_contrasts_cntrl <- rbind(size_contrasts_cntrl, size_outs[[2]])
+}
+
+print(size_means_cntrl)
+print(size_contrasts_cntrl)
+
+```
+
+```{r trt_cmpstn}
+
+## Initialize dataframes to append yearly results to
+size_means_trt <- data.frame()
+size_contrasts_trt <- data.frame()
+
+for(year in unique(sizeDist_by_unit$Year)){
+  for(size in unique(sizeDist_by_unit$Size.Class)){
+  # Get means and contrasts for size class
+    size_outs <- make_emm_df(sizeDist_by_unit[sizeDist_by_unit$Size.Class==size & sizeDist_by_unit$Year==year,],
+                           compare_column = 'Treatment',
+                           var = 'TPH', 
+                           ref = 'None')
+    # Add a Size column
+    size_outs[[1]]$Size_class <- size
+    size_outs[[2]]$Size_class <- size
+    
+    # Add a Year column
+    size_outs[[1]]$Year <- year
+    size_outs[[2]]$Year <- year
+    
+    # Bind to previous years
+    size_means_trt <- rbind(size_means_trt, size_outs[[1]])
+    size_contrasts_trt <- rbind(size_contrasts_trt, size_outs[[2]])
+}
+}
+
+
+print(size_means_trt)
+print(size_contrasts_trt)
+
+
+```
+### Size class visualizations
+```{r size_time}
+
+make_size_timeseries <- function(df){
+  size_time_plot <- ggplot(df,
+                           aes(x=factor(Size_class, unique(sizeDist_by_unit$Size.Class)), y=emmean, 
+                               ymin=emmean-SE, ymax=emmean+SE, fill=Treatment
+                               )) + 
+    geom_bar(stat="identity") +
+    geom_errorbar() +
+    scale_fill_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+    xlab("Size (cm)") +
+    ylab("Trees per hectare") + 
+    ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
+  # Styling
+    theme_minimal(base_size = 14) +
+    theme(axis.line = element_line(color='black'), 
+          panel.grid.minor = element_blank(),
+          # panel.grid.major = element_blank(),
+          axis.text.x = element_text(angle=45, hjust = 1))
+    
+  size_time_f1 <- size_time_plot+facet_wrap(~Treatment, ncol=2)
+  return(size_time_f1)
+}
+
+for(year in unique(size_means_trt$Year)){
+  p <- make_size_timeseries(size_means_trt[size_means_trt$Year == year,]) + ggtitle(year)
+  print(p)
+  }
+
+```
+```{r size_cntrl_diffs}
+## Visualize % difference in Control size distribution over time, relative to first year
+size_cntl_diffs <- ggplot(size_means_cntrl[size_means_cntrl$Year != ref_year,],
+              aes(x=factor(Year), y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
+  xlab("Year") +
+  ylab("% difference from reference year unit basal area") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+  
+print(size_cntl_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size.Class)), 
+                                   ncol = 3, scales = 'free_y'))
+```
+```{r size_trt_diffs}
+## Visualize $ difference in Treated vs Control basal area over time
+size_trt_diffs <- ggplot(size_means_trt[size_means_trt$Treatment!='None',],
+              aes(x=factor(Year), y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff, 
+                  col=Treatment)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(position = position_dodge(dodge)) + geom_errorbar(position = position_dodge(dodge)) +
+  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+  xlab("Year") +
+  ylab("% difference from Control TPH") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+
+# Vertical lines for treatment dates
+for(t in names(trt_dates[[site]])){
+  size_trt_diffs <- size_trt_diffs +
+    geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
+  }
+  
+print(size_trt_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size.Class)), 
+                                  ncol = 3, scales = 'free_y'))
+```
+
+## Benchmark 3: Growth
+
+```{r cntrl_growth}
+growth_params <- read.csv(file.path('..', 'data', 'Benchmarking_data', 
+                                    'Growth_all_sites', 'params_by_site_dbh_2025-04-25.csv'))
+
+if(site=='Blodgett'){
+  site_df <- growth_params[growth_params$site=='Blodgett_FFS',]
+}
+
+site_growth <- site_df[grep('cntrl_growth', site_df$parameter),]
+site_growth['DBH_cm'] = parse_number(site_growth$parameter)
+
+growth_by_pft_size <- data.frame(PFT = site_growth$pft, DBH = site_growth$DBH_cm, Mean_cm = exp(site_growth$Mean), low95CI = exp(site_growth$X2.5.), high95CI = exp(site_growth$X97.5.))
+
+print(growth_by_pft_size)
+
+```
+
+```{r trt_growth}
+trt_fx <- site_df[grep('treat_mean', site_df$parameter),]
+trt_fx <- trt_fx[trt_fx$parameter!='treat_mean[None]',]
+
+trtmnt_effect_growth_pft <- data.frame(PFT = trt_fx$pft, 
+           Treatment = sub(".*\\[([^][]+)].*", "\\1", trt_fx$parameter), 
+           Multiplier_mean = exp(trt_fx$Mean),
+           Multiplier_low95CI = exp(trt_fx$X2.5.),
+           Multiplier_high95CI = exp(trt_fx$X97.5.)
+)
+
+print(trtmnt_effect_growth_pft)
+```
+
+
+### Growth visualizations
+```{r cntrl_growth_plot}
+
+growth_cntrl <- ggplot(growth_by_pft_size,
+              aes(x=DBH, y=Mean_cm, ymin=low95CI, ymax=high95CI,
+                  col=PFT,fill=PFT)) + 
+  
+  # black line is 0
+    geom_hline(yintercept=0, lty=2, col = 'black') +
+    geom_line() + geom_ribbon(color = NA, alpha = 0.25) +
+    scale_fill_manual(values=unlist(pft_cols), name='PFT')+
+    scale_color_manual(values=unlist(pft_cols), name='PFT') +
+    xlab("DBH (cm)") + 
+    ylab('Mean DBH increment (cm/yr)') +
+  
+    # Styling
+    theme_minimal(base_size = 14) +
+    theme(axis.line = element_line(color='black'), 
+          panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank())
+
+print(growth_cntrl)
+```
+
+```{r growth_trt_diffs}
+## Visualize $ difference in Treated vs Control basal area over time
+growth_trt_diffs <- ggplot(trtmnt_effect_growth_pft,
+              aes(x=PFT, y=Multiplier_mean, ymin=Multiplier_low95CI, 
+                  ymax=Multiplier_high95CI, 
+                  col=Treatment)) + 
+  
+  # black line is now 1
+  geom_hline(yintercept = 1, lty = 3) + 
+  geom_point(position = position_dodge(dodge)) + geom_errorbar(position = position_dodge(dodge)) +
+  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+  xlab("PFT") +
+  ylab("Multiplier on control growth") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+
+print(growth_trt_diffs)
+```
+
+## Benchmark 4: Mortality
+```{r cntrl_mort}
+
+mrtlty_by_pft <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'byTrt_mortality_per_pft.csv'))
+
+# Subset control plots
+cntrl <- mrtlty_by_pft[mrtlty_by_pft$Treatment=='None',]
+
+## Initialize dataframes to append yearly results to
+mort_means_cntrl <- data.frame()
+
+for(p in unique(cntrl$PFT_simple)){
+  to_analyze <- cntrl[cntrl$PFT_simple == p,]
+  ref_year <- '2001-2003'
+  ref_value <- to_analyze$Mortality_pct_yr[to_analyze$Timeframe == ref_year]
+  ref_se <- to_analyze$SE_trt_pct[to_analyze$Timeframe == ref_year]
+  to_analyze$percent_diff = 100 * (to_analyze$Mortality_pct_yr - ref_value) / ref_value
+  to_analyze$se_percent_diff = sqrt(
+    (100/ref_value)^2 * (to_analyze$SE_trt_pct)^2 +
+      (100 * to_analyze$Mortality_pct_yr)^2 * ref_se^2
+  )
+  
+  to_analyze$lower_percent_diff = to_analyze$percent_diff - 1.96 * to_analyze$se_percent_diff
+  to_analyze$upper_percent_diff = to_analyze$percent_diff + 1.96 * to_analyze$se_percent_diff
+  
+  mort_means_cntrl <- rbind(mort_means_cntrl, to_analyze)
+
+  }
+
+print(mort_means_cntrl)
+
+```
+
+```{r trt_mort}
+## Initialize dataframes to append yearly results to
+mort_means_trt <- data.frame()
+
+ref_trt <- 'None'
+
+for(t in unique(mrtlty_by_pft$Timeframe)){
+  for(p in c('cedar', 'fir', 'pine', 'oak')){
+  # Get means and contrasts for pft
+    to_analyze <- mrtlty_by_pft[mrtlty_by_pft$PFT_simple == p & mrtlty_by_pft$Timeframe == t,]
+    ref_value <- to_analyze$Mortality_pct_yr[to_analyze$Treatment == ref_trt]
+    ref_se <- to_analyze$SE_trt_pct[to_analyze$Treatment == ref_trt]
+    to_analyze$percent_diff = 100 * (to_analyze$Mortality_pct_yr - ref_value) / ref_value
+    to_analyze$se_percent_diff = sqrt(
+      (100/ref_value)^2 * (to_analyze$SE_trt_pct)^2 +
+        (100 * to_analyze$Mortality_pct_yr)^2 * ref_se^2
+      )
+  
+    to_analyze$lower_percent_diff = to_analyze$percent_diff - 1.96 * to_analyze$se_percent_diff
+    to_analyze$upper_percent_diff = to_analyze$percent_diff + 1.96 * to_analyze$se_percent_diff
+    
+    mort_means_trt <- rbind(mort_means_trt, to_analyze)
+}
+}
+
+
+print(mort_means_trt)
+
+```
+
+
+### Mortality visualizations
+```{r size_time}
+
+
+mort_time_plot <- ggplot(mort_means_trt[mort_means_trt$PFT_simple %in% c('cedar', 'fir', 'pine', 'oak'),],
+                           aes(x=Timeframe, y=Mortality_pct_yr, 
+                               ymin=Mortality_pct_yr - SE_trt_pct, 
+                               ymax=Mortality_pct_yr + SE_trt_pct, 
+                               fill=PFT_simple
+                               )) + 
+  geom_bar(position = 'dodge', stat="identity") +
+  geom_errorbar(position = 'dodge') +
+    # scale_fill_manual(values=unlist(pft_cols), name='PFT') +
+    xlab("Timeframe") +
+    ylab("Mortality rate (annual per capita)") + 
+    # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
+  # Styling
+    theme_minimal(base_size = 14) +
+    theme(axis.line = element_line(color='black'), 
+          panel.grid.minor = element_blank(),
+          # panel.grid.major = element_blank(),
+          axis.text.x = element_text(angle=45, hjust = 1))
+    
+mort_time_plot <- mort_time_plot+facet_wrap(~Treatment, ncol=2)
+
+# for(year in unique(size_means_trt$Year)){
+#   p <- make_size_timeseries(size_means_trt[size_means_trt$Year == year,]) + ggtitle(year)
+#   print(p)
+#   }
+print(mort_time_plot)
+
+```
+
+```{r mort_cntrl_diffs}
+## Visualize % difference in Control size distribution over time, relative to first year
+mort_cntl_diffs <- ggplot(mort_means_cntrl[mort_means_cntrl$Timeframe != ref_year,],
+              aes(x=Timeframe, y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
+  xlab("Year") +
+  ylab("% difference from reference year mortality") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+  
+print(mort_cntl_diffs + facet_wrap(~PFT_simple, 
+                                   ncol = 2, scales = 'free_y'))
+```
+
+```{r mort_trt_diffs}
+## Visualize $ difference in Treated vs Control basal area over time
+mort_trt_diffs <- ggplot(mort_means_trt[mort_means_trt$Treatment!='None',],
+              aes(x=Timeframe, y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff, 
+                  col=Treatment)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(position = position_dodge(dodge)) + geom_errorbar(position = position_dodge(dodge)) +
+  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+  xlab("Year") +
+  ylab("% difference from Control Mortality") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+
+# # Vertical lines for treatment dates
+# for(t in names(trt_dates[[site]])){
+#   mort_trt_diffs <- mort_trt_diffs +
+#     geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
+#   }
+  
+print(mort_trt_diffs + facet_wrap(~PFT_simple, 
+                                  ncol = 2, scales = 'free_y'))
+```
+
+## Benchmark 5: Fuels
+```{r cntrl_fuel}
+
+fuel_by_unit <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'fuel_by_unit_year.csv'))
+fuel_by_unit[fuel_by_unit$Treatment=='Control', 'Treatment'] = 'None'
+
+# Subset control plots
+cntrl <- fuel_by_unit[fuel_by_unit$Treatment=='None',]
+
+ref_year <- as.character(min(cntrl$Year))
+
+## Initialize dataframes to append yearly results to
+fuel_means_cntrl <- data.frame()
+fuel_contrasts_cntrl <- data.frame()
+
+for(fuel in unique(fuel_by_unit$Fuel_class)){
+  # Get means and contrasts for size class
+  fuel_outs <- make_emm_df(cntrl[cntrl$Fuel_class==fuel,],
+                           compare_column = 'Year',
+                           var = 'Mg.ha', 
+                           ref = ref_year, rndm_fx = 'Unit')
+  # Add a Fuel column
+  fuel_outs[[1]]$Fuel_class <- fuel
+  fuel_outs[[2]]$Fuel_class <- fuel
+  
+  # Bind to previous years
+  fuel_means_cntrl <- rbind(fuel_means_cntrl, fuel_outs[[1]])
+  fuel_contrasts_cntrl <- rbind(fuel_contrasts_cntrl, fuel_outs[[2]])
+}
+
+print(fuel_means_cntrl)
+print(fuel_contrasts_cntrl)
+
+```
+
+```{r trt_fuel}
+
+## Initialize dataframes to append yearly results to
+fuel_means_trt <- data.frame()
+fuel_contrasts_trt <- data.frame()
+
+for(fuel in unique(fuel_by_unit$Fuel_class)){
+  for(year in unique(fuel_by_unit$Year)){
+    # Get means and contrasts for fuel class
+    fuel_outs <- make_emm_df(fuel_by_unit[fuel_by_unit$Fuel_class==fuel & fuel_by_unit$Year==year,],
+                           compare_column = 'Treatment',
+                           var = 'Mg.ha', 
+                           ref = 'None')
+    # Add a Fuel column
+    fuel_outs[[1]]$Fuel_class <- fuel
+    fuel_outs[[2]]$Fuel_class <- fuel
+    
+    # Add a Year column
+    fuel_outs[[1]]$Year <- year
+    fuel_outs[[2]]$Year <- year
+    
+    # Bind to previous years
+    fuel_means_trt <- rbind(fuel_means_trt, fuel_outs[[1]])
+    fuel_contrasts_trt <- rbind(fuel_contrasts_trt, fuel_outs[[2]])
+}
+}
+
+
+print(fuel_means_trt)
+print(fuel_contrasts_trt)
+
+```
+### Fuel visualizations
+```{r ba_timeseries}
+## Visualize basal area by time and treatment
+fuel_time_plot <- ggplot(fuel_means_trt,
+              aes(x=Year, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent SE
+                  col=Treatment,fill=Treatment))+ 
+  geom_line() + geom_ribbon(color = NA, alpha = 0.25) +
+  scale_fill_manual(values=unlist(trt_cols), name='Treatment',
+                      breaks = c('None', 'Burn', 'Thin', 'Burn+Thin'))+
+  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+  xlab("Year") +
+  ylab("Fuel (Mg/ha)") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+
+  
+print(fuel_time_plot + facet_wrap(~Fuel_class, ncol =2, scales='free_y'))
+
+```
+
+```{r size_cntrl_diffs}
+## Visualize % difference in Control size distribution over time, relative to first year
+fuel_cntl_diffs <- ggplot(fuel_means_cntrl[fuel_means_cntrl$Year != ref_year,],
+              aes(x=Fuel_class, y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
+  xlab("Year") +
+  ylab("% difference from reference year") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+  
+print(fuel_cntl_diffs)
+```
+
+```{r fuel_trt_diffs}
+## Visualize $ difference in Treated vs Control basal area over time
+fuel_trt_diffs <- ggplot(fuel_means_trt[fuel_means_trt$Treatment!='None',],
+              aes(x=Year, y=percent_diff, ymin=percent_diff - se_percent_diff, 
+                  ymax=percent_diff + se_percent_diff, 
+                  col=Treatment)) + 
+  
+  # black line is 0
+  geom_hline(yintercept = 0, lty = 3) + 
+  geom_point(position = position_dodge(dodge)) + geom_errorbar(position = position_dodge(dodge)) +
+  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
+  xlab("Year") +
+  ylab("% difference from Control") + 
+# Styling
+  theme_minimal(base_size = 14) +
+  theme(axis.line = element_line(color='black'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle=45, hjust = 1))
+
+# # Vertical lines for treatment dates
+# for(t in names(trt_dates[[site]])){
+#   size_trt_diffs <- size_trt_diffs +
+#     geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
+#   }
+  
+print(fuel_trt_diffs + facet_wrap(~factor(Fuel_class), 
+                                  ncol = 3, scales = 'free_y'))
+```
+
+
+
