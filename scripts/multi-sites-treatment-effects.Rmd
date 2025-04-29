@@ -47,6 +47,8 @@ ncase = length(case_desc)/nsites
 
 
 
+
+
 ```{r MakeDir}
 
 #plot path
@@ -293,6 +295,13 @@ rename_fun = function(x){
   x = gsub(pattern="fates_",replacement = "ctrl_",x)
 }
 
+ddbh_scale_fun = function(df,x){
+  if(grepl("ddbh_canopy",x)){denominator = ifelse(grepl("fates",x),"fates_nplant_canopy","ctrl_nplant_canopy")}
+  else if(grepl("ddbh_ustory",x)){denominator = ifelse(grepl("fates",x),"fates_nplant_ustory","ctrl_nplant_ustory")}
+  else{denominator = ifelse(grepl("fates",x),"fates_nplant","ctrl_nplant")}
+  df[[x]] = df[[x]]/df[[denominator]]
+}
+
 delta_pct_fun = function(df,x,quant_up,quant_lw){
   ctrl_name = rename_fun(x)
   df[[x]] = (df[[x]] - df[[ctrl_name]]) / df[[ctrl_name]] * 100
@@ -350,28 +359,42 @@ bypft  =     bypft                                              %>%
                                                    .data$fates_nplant)))
 bypft$fates_mortality = bypft %>% select(starts_with("fates_mortality")) %>% rowSums()
 
-bypft = bypft                                                                            %>% 
-mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
-                           NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
-       fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
-                           NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
-      fates_ddbh         = ifelse(is.na(fates_nplant) | fates_nplant==0, 
-                           NA, fates_ddbh*ha_2_m2/fates_nplant))
+
+bypft = bypft                                                                    %>% 
+        mutate(fates_ddbh_canopy = fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,
+        fates_ddbh_ustory = fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,
+        fates_ddbh        = fates_ddbh*ha_2_m2*fates_nplant)
+
+bypft = bypft                           %>% 
+        select(-c(time,month))          %>% 
+        group_by(case,desc,year,pft)    %>% 
+        summarize_all(mean,na.tm=TRUE)  %>% 
+        ungroup()
+
+ddbh_vars = names(bypft)[grepl("ddbh",names(bypft))]
+n_ddbh = length(ddbh_vars)
+for(v in sequence(n_ddbh)){
+  var_now = ddbh_vars[v]
+  bypft[[var_now]] = ddbh_scale_fun(bypft,var_now)
+}
 
 ctrl = bypft %>% filter(case %in% c(1,5,9))
 ctrl = ctrl                    %>% 
        group_by(case,desc)     %>% 
        slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
 
-
 delta_vars = c("fates_nplant",
                "fates_nplant_ustory",
                "fates_ddbh",
+               "fates_ddbh_canopy",
+               "fates_ddbh_ustory",
                "fates_basalarea",
                "fates_mortality")
 delta_desc = c("stem density",
                "understory stem density",
                "growth rate",
+               "growth rate canopy",
+               "growth rate understory",
                "basal area",
                "mortality")
 
@@ -386,7 +409,7 @@ treat_bypft = bypft                                   %>%
               filter(!case%in% c(1,5,9))             
 
 treat_bypft = treat_bypft %>% select(all_of(c("case",
-                                              "time",
+                                              "year",
                                               "pft",
                                               "desc",
                                               delta_vars)))
@@ -439,7 +462,7 @@ for(n in treated_case){
     mean_pft  = delta_now                                                 %>% 
                #mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
                #filter(!is.na(RXtrt_grp))                                 %>%
-               select(-c(time,case,desc))                                %>% 
+               select(-c(year,case,desc))                                %>% 
                group_by(site,treatment,pft)                              %>% 
                summarize_all(mean,na.rm=TRUE)
     
@@ -448,7 +471,7 @@ for(n in treated_case){
     sd_pft  = delta_now                                                 %>% 
                #mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
                #filter(!is.na(RXtrt_grp))                                 %>%
-               select(-c(time,case,desc))                                %>% 
+               select(-c(year,case,desc))                                %>% 
                group_by(site,treatment,pft)                              %>% 
                summarize_all(sd,na.rm=TRUE)
      deltabypft_sd = rbind(deltabypft_sd,sd_pft)
@@ -546,13 +569,24 @@ overall = overall                                 %>%
                                                    .data$fates_nplant)))
 overall$fates_mortality = overall %>% select(starts_with("fates_mortality")) %>% rowSums()
 
-overall = overall                                                                           %>% 
-mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
-                           NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
-       fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
-                           NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
-      fates_ddbh         = ifelse(is.na(fates_nplant) | fates_nplant==0, 
-                           NA, fates_ddbh*ha_2_m2/fates_nplant))
+
+overall = overall                         %>% 
+mutate(fates_ddbh_canopy = fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,
+       fates_ddbh_ustory = fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,
+       fates_ddbh        = fates_ddbh*ha_2_m2*fates_nplant)
+
+overall = overall                        %>% 
+          group_by(case,desc,year)       %>% 
+          select(-c(time,month))         %>% 
+          summarize_all(mean,na.rm=TRUE) %>% 
+          ungroup()
+
+ddbh_vars = names(overall)[grepl("ddbh",names(overall))]
+n_ddbh = length(ddbh_vars)
+for(v in sequence(n_ddbh)){
+  var_now = ddbh_vars[v]
+  overall[[var_now]] = ddbh_scale_fun(overall,var_now)
+}
 
 ctrl_all = overall %>% filter(case %in% c(1,5,9))
 ctrl_all = ctrl_all                %>% 
@@ -567,7 +601,7 @@ treat_all = overall                                   %>%
             filter(!case%in% c(1,5,9))             
 
 treat_all = treat_all %>% select(all_of(c("case",
-                                          "time",
+                                          "year",
                                           "desc",
                                         delta_vars)))
     
@@ -589,14 +623,14 @@ delta_sd   = NULL
 for(n in treated_case){
   delta_now = delta_treat %>% filter(case==n)
   mean_now  = delta_now                                             %>% 
-              select(-c(time,case,desc))                            %>% 
+              select(-c(year,case,desc))                            %>% 
               group_by(site,treatment)                              %>% 
               summarize_all(mean,na.rm=TRUE)
     
     delta_mean = rbind(delta_mean,mean_now)
     
     sd_now  =  delta_now                                             %>% 
-               select(-c(time,case,desc))                            %>% 
+               select(-c(year,case,desc))                            %>% 
                group_by(site,treatment)                              %>% 
                summarize_all(sd,na.rm=TRUE)
     delta_sd = rbind(delta_sd,sd_now)
@@ -646,7 +680,7 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_byTreatment-outlierRemoved.",gg_device[d])
+    f_output = paste0(f_vnam,"_byTreatment-smoothed.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
@@ -675,12 +709,24 @@ for(d in sequence(n_delta)){
 bydbh = data.table::fread(file.path(main_path,file_name[3]))
 
 bydbh = bydbh                          %>% 
-mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
-                                  NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
-       fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
-                                  NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
-       fates_ddbh        = ifelse(is.na(fates_nplant) | fates_nplant==0, 
-                                  NA, fates_ddbh*ha_2_m2/fates_nplant))
+mutate(fates_ddbh_canopy = fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,
+       fates_ddbh_ustory = fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,
+       fates_ddbh        = fates_ddbh*ha_2_m2*fates_nplant)
+
+bydbh = bydbh                          %>% 
+        mutate(year = year(time))      %>% 
+        group_by(case,desc,year,dbh)   %>% 
+        select(-time)                  %>% 
+        summarize_all(mean,na.rm=TRUE) %>% 
+        ungroup()
+
+ddbh_vars = names(bydbh)[grepl("ddbh",names(bydbh))]
+n_ddbh = length(ddbh_vars)
+for(v in sequence(n_ddbh)){
+  var_now = ddbh_vars[v]
+ bydbh[[var_now]] = ddbh_scale_fun(bydbh,var_now)
+}
+
 
 ctrl_growth = bydbh %>% filter(case %in% c(1,5,9))
 ctrl_growth = ctrl_growth                    %>% 
@@ -707,28 +753,30 @@ treat_growth = bydbh                                  %>%
                filter(!case%in% c(1,5,9))             
 
 treat_growth = treat_growth %>% select(all_of(c("case",
-                                                "time",
+                                                "year",
                                                 "dbh",
                                                 "desc",
                                               growth_vars)))
     
 
 delta_growth = cbind(treat_growth,ctrl_growth)
-delta_growth = delta_growth                    %>% 
-               mutate(year=year(time))         %>% 
-               select(-time)                   %>% 
-               group_by(case,desc,year,dbh)    %>% 
-               summarize_all(mean,na.tm=TRUE)
-               
+
 delta_growth = delta_growth                    %>% 
               mutate(site=site_grab(desc))
 delta_growth$treatment = unlist(lapply(delta_growth$desc,treatment_grab))
-
 
 for(v in sequence(n_delta)){
   var_now = growth_vars[v]
   delta_growth[[var_now]] = delta_pct_fun(delta_growth,var_now,0.95,0.05)
 }
+
+delta_growth = delta_growth                    %>% 
+               select(all_of(c("site",
+                               "treatment",
+                               "dbh",
+                               "case",
+                               growth_vars)))
+
 
 delta_growth_12 = delta_growth %>% filter(dbh!=1)
 
@@ -739,15 +787,15 @@ for(n in treated_case){
   delta_now = delta_growth_12 %>% filter(case==n)
  
   mean_growth  = delta_now                                              %>% 
-              select(-c(time,case,desc))                                %>% 
               group_by(site,treatment,dbh)                              %>% 
+              select(-case)                                             %>%
               summarize_all(mean,na.rm=TRUE)
     
   deltagrowth_mean = rbind(deltagrowth_mean,mean_growth)
     
   sd_growth  = delta_now                                                 %>% 
-               select(-c(time,case,desc))                                %>% 
                group_by(site,treatment,dbh)                              %>% 
+               select(-case)                                             %>% 
                summarize_all(sd,na.rm=TRUE)
   deltagrowth_sd = rbind(deltagrowth_sd,sd_growth)
     
