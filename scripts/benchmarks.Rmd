@@ -593,7 +593,7 @@ write.csv(tph_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/st
 ```
 
 ### Stem density visualizations
-```{r pft_timeseries}
+```{r tph_timeseries}
 ## Visualize absolute basal area over time and across treatments
 tph_means_all_years$xlbl <- paste(tph_means_all_years$Start_yr, tph_means_all_years$End_yr, sep = '-')
 
@@ -676,14 +676,84 @@ The next benchmark is the size class distribution of the stand. We chose the fol
 ### Absolute size distribution and change over time in the Control
 The process is very similar to that we took for basal area. We begin with the Control units and estimate the size distribution at each point in time at which field measurements took place. For each measurement date following the initial inventory, we calculate percent change in the number of stems in each size class with respect to the initial values. 
 
-```{r cntrl_size}
 
+### Treatments: difference in size distribution at different times, relative to the Control
+Here, we create a benchmark for percent difference between Control and each Treatment for each measurement year and each size bin. 
+```{r size_trt}
 ## Load size distributions for each unit, which were calculated outside of this markdown file. 
-sizeDist_by_unit <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'sizeDist_by_unit_year.csv'))
+sizeDist_by_unit <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'size_Dist_by_unit_year.csv'))
 
 # Make size class as factor with order
-sizeDist_by_unit$Size.Class <- factor(sizeDist_by_unit$Size.Class, unique(sizeDist_by_unit$Size.Class))
+sizeDist_by_unit$Size_class <- factor(sizeDist_by_unit$Size_class, unique(sizeDist_by_unit$Size_class))
 
+## Compute average PFT BA over each measurement interval
+all_size_avgs <- data.frame()
+
+for(s in unique(sizeDist_by_unit$Size_class)){
+  s_df <- sizeDist_by_unit[sizeDist_by_unit$Size_class==s,]
+  new <- compute_avgs_over_intervals(s_df, var = 'TPH')
+  new$Size_class <- s
+  
+  all_size_avgs <- rbind(all_size_avgs, new)
+}
+
+all_size_avgs
+
+### Get treatment differences for each measurement period and size 
+## Initialize dataframes to append yearly results to
+size_means_all_years <- data.frame()
+size_contrasts_all_years <- data.frame()
+
+# Loop through size classes and measurement years
+for(s in unique(all_size_avgs$Size_class)){
+  for(year in unique(all_size_avgs$End_yr)){
+  # Get Treatment means and contrasts for year
+    year_outs <- make_emm_df(all_size_avgs[all_size_avgs$End_yr==year & 
+                                            all_size_avgs$Size_class==s,],
+                             compare_column = 'Treatment',
+                             var = 'var', 
+                             ref = 'None')
+    # Add Year columns
+    year_outs[[1]]$Start_yr <- unique(all_size_avgs[all_size_avgs$End_yr==year, 'Start_yr'])
+    year_outs[[2]]$Start_yr <- unique(all_size_avgs[all_size_avgs$End_yr==year, 'Start_yr'])
+     
+    year_outs[[1]]$End_yr <- year
+    year_outs[[2]]$End_yr <- year
+    
+    # Add Size column
+    year_outs[[1]]$Size_class <- s
+    year_outs[[2]]$Size_class <- s
+    
+    # Bind to previous years
+    size_means_all_years <- rbind(size_means_all_years, year_outs[[1]])
+    size_contrasts_all_years <- rbind(size_contrasts_all_years, year_outs[[2]])
+  }
+
+}
+
+# Timeseries of absolute TPH and percent differences between control and treatment
+print(size_means_all_years)
+
+# # Contrasts dataframe is mostly informational
+# print(size_contrasts_all_years)
+
+```
+
+```{r size_summary}
+
+size_summary <- make_benchmark_summary(size_means_all_years, 
+                                      group_cols = c('Treatment', 'Size_class'),
+                                      var_nm = 'Stems_per_hectare', 
+                                      nYr_df = all_size_avgs)
+
+write.csv(size_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/size_dist_', site, '.csv')), row.names=FALSE)
+
+size_summary
+
+
+```
+
+```{r cntrl_size}
 # Subset control plots
 cntrl <- sizeDist_by_unit[sizeDist_by_unit$Treatment=='None',]
 
@@ -715,60 +785,26 @@ print(size_contrasts_cntrl)
 
 ```
 
-### Treatments: difference in size distribution at different times, relative to the Control
-Here, we create a benchmark for percent difference between Control and each Treatment for each measurement year and each size bin. 
-```{r trt_size}
-
-## Initialize dataframes to append yearly results to
-size_means_trt <- data.frame()
-size_contrasts_trt <- data.frame()
-
-## Loop through measurement years and size bins
-for(year in unique(sizeDist_by_unit$Year)){
-  for(size in unique(sizeDist_by_unit$Size.Class)){
-  # Get means and contrasts for size class
-    size_outs <- make_emm_df(sizeDist_by_unit[sizeDist_by_unit$Size.Class==size & sizeDist_by_unit$Year==year,],
-                           compare_column = 'Treatment',
-                           var = 'TPH', 
-                           ref = 'None')
-    # Add a Size column
-    size_outs[[1]]$Size_class <- size
-    size_outs[[2]]$Size_class <- size
-    
-    # Add a Year column
-    size_outs[[1]]$Year <- year
-    size_outs[[2]]$Year <- year
-    
-    # Bind to previous years
-    size_means_trt <- rbind(size_means_trt, size_outs[[1]])
-    size_contrasts_trt <- rbind(size_contrasts_trt, size_outs[[2]])
-}
-}
-
-
-print(size_means_trt)
-print(size_contrasts_trt)
-
-
-```
 
 ### Size class visualizations
 ```{r size_time}
 
-## Visualize size distribution for each treatment in each measurement year
+## Visualize size distribution over time and across treatments
+size_means_all_years$xlbl <- paste(size_means_all_years$Start_yr, size_means_all_years$End_yr, sep = '-')
+
 
 ## Function to make plot of size class distributions for a given year, faceted by treatment
 make_size_timeseries <- function(df){
   size_time_plot <- ggplot(df,
-                           aes(x=factor(Size_class, unique(sizeDist_by_unit$Size.Class)), y=emmean, 
+                           aes(x=factor(Size_class, unique(sizeDist_by_unit$Size_class)), y=emmean, 
                                ymin=emmean-SE, ymax=emmean+SE, fill=Treatment
                                )) + 
     geom_bar(stat="identity") +
     geom_errorbar() +
     scale_fill_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
-    xlab("Size (cm)") +
+    xlab("Upper bound of size bin (cm)") +
     ylab("Trees per hectare") + 
-    ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
+    ylim(c(0, max(size_means_all_years$emmean + size_means_all_years$SE))) +
   # Styling
     theme_minimal(base_size = 14) +
     theme(axis.line = element_line(color='black'), 
@@ -781,8 +817,8 @@ make_size_timeseries <- function(df){
 }
 
 # Loop through years
-for(year in unique(size_means_trt$Year)){
-  p <- make_size_timeseries(size_means_trt[size_means_trt$Year == year,]) + ggtitle(paste0(site, ' ', year))
+for(l in unique(size_means_all_years$xlbl)){
+  p <- make_size_timeseries(size_means_all_years[size_means_all_years$xlbl==l,]) + ggtitle(paste0(site, ' ', l))
   print(p)
   }
 
@@ -809,19 +845,28 @@ size_cntl_diffs <- ggplot(size_means_cntrl[size_means_cntrl$Year != ref_year,],
 print(size_cntl_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size.Class)), 
                                    ncol = 3, scales = 'free_y'))
 ```
+
+
 ```{r size_trt_diffs}
-## Visualize % difference in Treated vs Control size distribution over time
-size_trt_diffs <- ggplot(size_means_trt[size_means_trt$Treatment!='None',],
-              aes(x=factor(Year), y=percent_diff, ymin=percent_diff - se_percent_diff, 
+## Visualize % difference between Treated and Control basal area at each measurement time. 
+size_trt_diffs <- ggplot(size_means_all_years[size_means_all_years$Treatment!='None' & 
+                                            size_means_all_years$Start_yr!=ref_year,],
+              aes(x=xlbl, y=percent_diff, ymin=percent_diff - se_percent_diff,  ## SE or 95CL
                   ymax=percent_diff + se_percent_diff, 
                   col=Treatment)) + 
   
   # black line is 0
   geom_hline(yintercept = 0, lty = 3) + 
+  # geom_hline(yintercept = pft_summary[pft_summary$Treatment=='Burn', 'Time_wghtd_avg'], 
+  #            color = trt_cols[['Burn']], alpha=0.5) +
+  #   geom_hline(yintercept = pft_summary[pft_summary$Treatment=='Thin', 'Time_wghtd_avg'], 
+  #            color = trt_cols[['Thin']], alpha=0.5) +
+  #   geom_hline(yintercept = pft_summary[pft_summary$Treatment=='Burn+Thin', 'Time_wghtd_avg'], 
+  #            color = trt_cols[['Burn+Thin']], alpha=0.5) +
   geom_point(position = position_dodge(dodge)) + geom_errorbar(position = position_dodge(dodge)) +
   scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
-  xlab("Year") +
-  ylab("% difference from Control TPH") + 
+  xlab("Interval") +
+  ylab("% difference from Control fraction") + 
   ggtitle(site) +
 # Styling
   theme_minimal(base_size = 14) +
@@ -830,13 +875,13 @@ size_trt_diffs <- ggplot(size_means_trt[size_means_trt$Treatment!='None',],
         panel.grid.major = element_blank(),
         axis.text.x = element_text(angle=45, hjust = 1))
 
-# Vertical lines for treatment dates
-for(t in names(trt_dates[[site]])){
-  size_trt_diffs <- size_trt_diffs +
-    geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
-  }
+# # Vertical lines for treatment dates
+# for(t in names(trt_dates[[site]])){
+#   ba_trt_diffs <- ba_trt_diffs +
+#     geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
+#   }
   
-print(size_trt_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size.Class)), 
+print(size_trt_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size_class)), 
                                   ncol = 3, scales = 'free_y'))
 ```
 
