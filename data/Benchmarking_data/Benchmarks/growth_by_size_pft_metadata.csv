@@ -1,0 +1,6 @@
+﻿variable,description,variable type,unit
+PFT,"Plant functional type; includes cedar, fir, yellow_pine, and white_pine (sugar pine)",string,NA
+DBH,Diameter at breast height,integer,cm
+mean_cm,Mean annual growth of tree of given PFT and DBH in the Control,float,cm
+low95CI,Lower bound of 95% credible interval of mean growth in control plot,float,cm
+high95CI,Upper bound of 95% credible interval of mean growth in control plot,float,cm

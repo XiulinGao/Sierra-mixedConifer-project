@@ -909,6 +909,8 @@ site_growth['DBH_cm'] = parse_number(site_growth$parameter)
 ## Note that the only uncertainty metric for growth is the 95% credible interval. 
 growth_by_pft_size <- data.frame(PFT = site_growth$pft, DBH = site_growth$DBH_cm, Mean_cm = exp(site_growth$Mean), low95CI = exp(site_growth$X2.5.), high95CI = exp(site_growth$X97.5.))
 
+write.csv(growth_by_pft_size, file.path(paste0('../data/Benchmarking_data/Benchmarks/growth_by_size_pft_', site, '.csv')), row.names=FALSE)
+
 print(growth_by_pft_size)
 
 ```
@@ -925,6 +927,8 @@ trtmnt_effect_growth_pft <- data.frame(PFT = trt_fx$pft,
            Multiplier_low95CI = exp(trt_fx$X2.5.),
            Multiplier_high95CI = exp(trt_fx$X97.5.)
 )
+
+write.csv(trtmnt_effect_growth_pft, file.path(paste0('../data/Benchmarking_data/Benchmarks/growth_effects_', site, '.csv')), row.names=FALSE)
 
 print(trtmnt_effect_growth_pft)
 ```
@@ -1026,8 +1030,8 @@ make_mrtlty_tbl <- function(df, dead_ind, ivl, t){
     
     annualized <- annualized %>%
       mutate(
-        lowerCL = annual_mortality - 1.96 * SE_annual,
-        upperCL = annual_mortality + 1.96 * SE_annual
+        lower95CL = annual_mortality - 1.96 * SE_annual,
+        upper95CL = annual_mortality + 1.96 * SE_annual
     )
     
     annualized$PFT <- p
@@ -1050,22 +1054,22 @@ make_mrtlty_tbl <- function(df, dead_ind, ivl, t){
 raw <- read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2001-2003.csv')
 ## Label to indicate the time interval over which mortality is calculated
 ivl <- "2001-2003"
-m_01_03 <- make_mrtlty_tbl(raw, dead_ind = 'Snag', ivl = ivl, t = 2)
+m_01_03 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t = 2)
 
 ### First post-treatment 
 raw <- read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2003-2009.csv')
 ivl <- "2003-2009"
-m_03_09 <- make_mrtlty_tbl(raw, dead_ind = 'Snag', ivl = ivl, t=6)
+m_03_09 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t=6)
 
 ### Second post-treatment
 raw <- read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2009-2016.csv')
 ivl <- "2009-2016"
-m_09_16 <- make_mrtlty_tbl(raw, dead_ind = 'Snag', ivl = ivl, t=7)
+m_09_16 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t=7)
 
 ### Third post-treatment
 ivl <- '2016-2020'
 raw <- read.csv(paste0('../data/Benchmarking_data/Blodgett/mortality_invntry_', ivl, '.csv'))
-m_16_20 <- make_mrtlty_tbl(raw, dead_ind = 'Snag', ivl = ivl, t=4)
+m_16_20 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t=4)
 
 allmort <- rbind(m_01_03, m_03_09, m_09_16, m_16_20)
 
@@ -1093,7 +1097,7 @@ ggplot(allmort[allmort$Treatment == 'None',],
 
 
 ```
-```{r}
+```{r mort_time_plot}
 mort_time_plot <- ggplot(allmort,
        aes(x=calculationInterval, y=prob, 
                                ymin=prob - SE, 
@@ -1126,22 +1130,22 @@ mort_means_trt <- data.frame()
 
 ref_trt <- 'None'
 
-for(t in unique(mrtlty_by_pft$Timeframe)){
+for(t in unique(allmort$calculationInterval)){
   for(p in c('cedar', 'fir', 'pine', 'oak')){
   # Get means and contrasts for pft
-    to_analyze <- mrtlty_by_pft[mrtlty_by_pft$PFT_simple == p & mrtlty_by_pft$Timeframe == t,]
-    ref_value <- to_analyze$Mortality_pct_yr[to_analyze$Treatment == ref_trt]
-    ref_se <- to_analyze$SE_trt_pct[to_analyze$Treatment == ref_trt]
-    to_analyze$diff <- to_analyze$Mortality_pct_yr - ref_value
-    to_analyze$se_diff = sqrt(ref_se^2 + (to_analyze$SE_trt_pct)^2)
+    to_analyze <- allmort[allmort$PFT == p & allmort$calculationInterval == t,]
+    ref_value <- to_analyze$prob[to_analyze$Treatment == ref_trt]
+    ref_se <- to_analyze$SE[to_analyze$Treatment == ref_trt]
+    to_analyze$diff <- to_analyze$prob - ref_value
+    to_analyze$se_diff = sqrt(ref_se^2 + (to_analyze$SE)^2)
     # to_analyze$percent_diff = 100 * (to_analyze$Mortality_pct_yr - ref_value) / ref_value
     # to_analyze$se_percent_diff = sqrt(
     #   (100/ref_value)^2 * (to_analyze$SE_trt_pct)^2 +
     #     (100 * to_analyze$Mortality_pct_yr)^2 * ref_se^2
     #   )
   
-    to_analyze$lower_diff = to_analyze$diff - 1.96 * to_analyze$se_diff
-    to_analyze$upper_diff = to_analyze$diff + 1.96 * to_analyze$se_diff
+    to_analyze$lower95_diff = to_analyze$diff - 1.96 * to_analyze$se_diff
+    to_analyze$upper95_diff = to_analyze$diff + 1.96 * to_analyze$se_diff
     
     mort_means_trt <- rbind(mort_means_trt, to_analyze)
 }
@@ -1211,8 +1215,8 @@ print(mort_cntl_diffs + facet_wrap(~PFT_simple,
 ```{r mort_trt_diffs}
 ## Visualize $ difference in Treated vs Control basal area over time
 mort_trt_diffs <- ggplot(mort_means_trt[mort_means_trt$Treatment!='None',],
-              aes(x=Timeframe, y=percent_diff, ymin=percent_diff - se_percent_diff, 
-                  ymax=percent_diff + se_percent_diff, 
+              aes(x=calculationInterval, y=diff, ymin=diff - se_diff, 
+                  ymax=diff + se_diff, 
                   col=Treatment)) + 
   
   # black line is 0
@@ -1234,8 +1238,19 @@ mort_trt_diffs <- ggplot(mort_means_trt[mort_means_trt$Treatment!='None',],
 #     geom_vline(xintercept=trt_dates[[site]][[t]], lty=2, col = trt_cols[[t]])
 #   }
   
-print(mort_trt_diffs + facet_wrap(~PFT_simple, 
+print(mort_trt_diffs + facet_wrap(~PFT, 
                                   ncol = 2, scales = 'free_y'))
+```
+
+```{r mort_csv}
+
+## Clean table for export
+
+## Change diffs to NAs for control plots to avoid confusion
+mort_means_trt[mort_means_trt$Treatment==ref_trt, c('diff', 'se_diff', 'lower95_diff', 'upper95_diff')] = NA
+
+write.csv(mort_means_trt, file.path(paste0('../data/Benchmarking_data/Benchmarks/mortality_', site, '.csv')), row.names=FALSE)
+
 ```
 
 
@@ -1306,6 +1321,25 @@ print(fuel_means_trt)
 print(fuel_contrasts_trt)
 
 ```
+
+```{r fuel_csv}
+
+## Clean table for export
+
+## Change diffs to NAs for control plots to avoid confusion
+fuel_means_trt[fuel_means_trt$Treatment==ref_trt, c('percent_diff', 'lowerCL_percent_diff',
+                                                    'upperCL_percent_diff', 'se_percent_diff')] = NA
+
+to_export <- fuel_means_trt[, c('Treatment', 'Fuel_class', 'Year', 'emmean', 'SE', 'percent_diff', 
+                                'se_percent_diff', 'lowerCL_percent_diff',
+                                'upperCL_percent_diff')]
+
+colnames(to_export)[colnames(to_export) == 'emmean'] = 'Fuel_load'
+
+write.csv(to_export, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_', site, '.csv')), row.names=FALSE)
+
+```
+
 
 ### Fuel visualizations
 ```{r ba_timeseries}
