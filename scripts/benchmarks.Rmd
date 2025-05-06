@@ -52,6 +52,11 @@ trt_dates = list(
     Thin = c(2011)
   )
 )
+
+invntry_dates = list(
+  Blodgett = c(2001, 2003, 2009, 2016, 2020),
+  STEF = c(2012, 2014, 2016, 2018)
+)
 ```
 
 
@@ -64,7 +69,7 @@ library(stringr)
 library(dplyr)
 
 ## Specify site: Blodgett, STEF, or Teakettle
-site <- 'Blodgett'
+site <- 'STEF'
 ```
 
 ```{r functions}
@@ -176,7 +181,8 @@ compute_avgs_over_intervals <- function(df, var){
 make_benchmark_summary <- function(means_all_years, 
                                    group_cols, 
                                    var_nm, 
-                                   nYr_df){
+                                   nYr_df,
+                                   ref_year){
   ## Subset final year values
   fnl_yr <- means_all_years[means_all_years$End_yr==as.character(max(as.numeric(means_all_years$End_yr))),]
   
@@ -234,8 +240,12 @@ ba_by_unit <- read.csv(file.path('..', 'data', 'Benchmarking_data', site, 'ba_by
 avg_ba_by_unit <- compute_avgs_over_intervals(ba_by_unit, var = 'BAperTree_m2ha')
 avg_ba_by_unit
 
-## The reference year is the first year of measurement
-ref_year <- as.character(min(ba_by_unit$Year))
+## The reference year is the first year of measurement, unless otherwise indicated
+if(site=='Blodgett'){
+  ref_year <- as.character(min(ba_by_unit$Year))
+}else if (site=='STEF'){
+  ref_year <- 2009
+}
 
 ```
 
@@ -288,6 +298,12 @@ print(ba_means_all_years)
 # Contrasts dataframe is mostly informational
 print(ba_contrasts_all_years)
 
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  ba_means_all_years <- ba_means_all_years[!(ba_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       ba_means_all_years$Start_yr==2012),]
+}
+
 ```
 Similar to the outputs for only the Control, the first dataframe provides absolute values for average basal area under each treatment in each measurement year, and the difference at each time point between each treatment and the control. The second dataframe provides contrasts. 
 
@@ -297,7 +313,8 @@ Similar to the outputs for only the Control, the first dataframe provides absolu
 ba_summary <- make_benchmark_summary(ba_means_all_years, 
                                      group_cols = c('Treatment'),
                                      var_nm = 'Basal_area_m2ha',
-                                     nYr_df = avg_ba_by_unit)
+                                     nYr_df = avg_ba_by_unit,
+                                     ref_year = 2009)
 
 write.csv(ba_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/basal_area_', site, '.csv')), row.names=FALSE)
 
@@ -309,7 +326,7 @@ write.csv(ba_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/bas
 ## Visualize absolute basal area over time and across treatments
 ba_means_all_years$xlbl <- paste(ba_means_all_years$Start_yr, ba_means_all_years$End_yr, sep = '-')
 
-ba_time_plot <- ggplot(ba_means_all_years[ba_means_all_years$Start_yr!=ref_year,],
+ba_time_plot <- ggplot(ba_means_all_years[ba_means_all_years$Start_yr!=thin_ref,],
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
                   col=Treatment,fill=Treatment))+
   geom_bar(stat="identity", position = 'dodge') +
@@ -354,7 +371,7 @@ print(ba_cntl_diffs)
 ```{r ba_trt_diffs}
 ## Visualize % difference between Treated and Control basal area at each measurement time. 
 ba_trt_diffs <- ggplot(ba_means_all_years[ba_means_all_years$Treatment!='None' & 
-                                            ba_means_all_years$Start_yr!=ref_year,],
+                                            ba_means_all_years$Start_yr!=thin_ref,],
               aes(x=xlbl, y=percent_diff, ymin=percent_diff - se_percent_diff,  ## SE or 95CL
                   ymax=percent_diff + se_percent_diff, 
                   col=Treatment)) + 
@@ -452,6 +469,12 @@ print(pft_means_all_years)
 # # Contrasts dataframe is mostly informational
 # print(pft_contrasts_all_years)
 
+
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  pft_means_all_years <- pft_means_all_years[!(pft_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       pft_means_all_years$Start_yr==2012),]
+}
 ```
 
 
@@ -460,7 +483,8 @@ print(pft_means_all_years)
 pft_summary <- make_benchmark_summary(pft_means_all_years, 
                                       group_cols = c('Treatment', 'PFT'),
                                       var_nm = 'PFT_fraction', 
-                                      nYr_df = all_pft_avgs)
+                                      nYr_df = all_pft_avgs,
+                                      ref_year = 2009)
 
 write.csv(pft_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/pft_composition_', site, '.csv')), row.names=FALSE)
 
@@ -474,7 +498,7 @@ pft_summary
 ## Visualize absolute basal area over time and across treatments
 pft_means_all_years$xlbl <- paste(pft_means_all_years$Start_yr, pft_means_all_years$End_yr, sep = '-')
 
-pft_time_plot <- ggplot(pft_means_all_years[pft_means_all_years$Start_yr!=ref_year,],
+pft_time_plot <- ggplot(pft_means_all_years[pft_means_all_years$Start_yr!=thin_ref,],
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
                   fill=PFT))+
   geom_bar(stat="identity") +
@@ -576,7 +600,11 @@ print(tph_means_all_years)
 # Contrasts dataframe is mostly informational
 print(tph_contrasts_all_years)
 
-
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  tph_means_all_years <- tph_means_all_years[!(tph_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       tph_means_all_years$Start_yr==2012),]
+}
 
 ```
 
@@ -584,7 +612,8 @@ print(tph_contrasts_all_years)
 tph_summary <- make_benchmark_summary(tph_means_all_years, 
                                      group_cols = c('Treatment'),
                                      var_nm = 'Stems_per_ha',
-                                     nYr_df = avg_tph_by_unit)
+                                     nYr_df = avg_tph_by_unit,
+                                     ref_year = ref_year)
 
 
 write.csv(tph_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/stand_density_', site, '.csv')), row.names=FALSE)
@@ -737,6 +766,12 @@ print(size_means_all_years)
 # # Contrasts dataframe is mostly informational
 # print(size_contrasts_all_years)
 
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  size_means_all_years <- size_means_all_years[!(size_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       size_means_all_years$Start_yr==2012),]
+}
+
 ```
 
 ```{r size_summary}
@@ -744,7 +779,8 @@ print(size_means_all_years)
 size_summary <- make_benchmark_summary(size_means_all_years, 
                                       group_cols = c('Treatment', 'Size_class'),
                                       var_nm = 'Stems_per_hectare', 
-                                      nYr_df = all_size_avgs)
+                                      nYr_df = all_size_avgs,
+                                      ref_year = ref_year)
 
 write.csv(size_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/size_dist_', site, '.csv')), row.names=FALSE)
 
@@ -899,6 +935,8 @@ growth_params <- read.csv(file.path('..', 'data', 'Benchmarking_data',
 ## Adjust data nomenclature
 if(site=='Blodgett'){
   site_df <- growth_params[growth_params$site=='Blodgett_FFS',]
+}else if(site == 'STEF'){
+  site_df <- growth_params[growth_params$site=='STEF-VDT',]
 }else{
   site_df <- growth_params[growth_params$site == site]
 }
@@ -997,9 +1035,9 @@ annualize <- function(p, se_p, t) {
   return(c(rate = rate, se = se_rate))
 }
 
-make_mrtlty_tbl <- function(df, dead_ind, ivl, t){
+make_mrtlty_tbl <- function(df, status_col, dead_ind, ivl, t, rndm_fx = NULL){
   ## Convert status to a numerical code
-  df$Dead <- ifelse(df$status==dead_ind, 1, 0)
+  df$Dead <- ifelse(df[[status_col]]==dead_ind, 1, 0)
   
   ## Treatment as factor, reference level is the control
   df$Treatment <- factor(df$Treatment, levels = c('None', 'Burn', 'Thin', 'Burn+Thin'))
@@ -1009,35 +1047,38 @@ make_mrtlty_tbl <- function(df, dead_ind, ivl, t){
   
   ## Loop through PFTs
   for(p in c('cedar', 'fir', 'pine', 'oak')){
+    print(p)
     to_analyze <- df[df$PFT_simple==p,]
     
-    # Model mortality using a binomial distribution
-    mod <- glmer(Dead ~ Treatment + (1 | comp/plot_id), ## plot and compartment are random effects
-               family = binomial,
-               data = to_analyze)
-    
-    ## Predicted mortalities on response scale
-    emm <- emmeans(mod, ~Treatment, type = 'response')
-    
-    annualized <- as.data.frame(emm) %>%
-      rowwise() %>% 
-      mutate(
-        transformed = list(annualize(prob, SE, t=2)),
-        annual_mortality = transformed[[1]],
-        SE_annual = transformed[[2]]
-      ) %>% 
-      select(Treatment, prob, SE, annual_mortality, SE_annual)
-    
-    annualized <- annualized %>%
-      mutate(
-        lower95CL = annual_mortality - 1.96 * SE_annual,
-        upper95CL = annual_mortality + 1.96 * SE_annual
-    )
-    
-    annualized$PFT <- p
-    annualized$calculationInterval <- paste0(ivl, ' (', as.character(t), '-year)')
-    
-    mrtlty_annualized <- rbind(mrtlty_annualized, annualized)
+    if(sum(to_analyze$Dead)!=0){
+          # Model mortality using a binomial distribution
+      mod <- glmer(paste0('Dead ~ Treatment + (1|', rndm_fx, ')'), ## plot and compartment are random effects
+                 family = binomial,
+                 data = to_analyze)
+      
+      ## Predicted mortalities on response scale
+      emm <- emmeans(mod, ~Treatment, type = 'response')
+      
+      annualized <- as.data.frame(emm) %>%
+        rowwise() %>% 
+        mutate(
+          transformed = list(annualize(prob, SE, t=2)),
+          annual_mortality = transformed[[1]],
+          SE_annual = transformed[[2]]
+        ) %>% 
+        select(Treatment, prob, SE, annual_mortality, SE_annual)
+      
+      annualized <- annualized %>%
+        mutate(
+          lower95CL = annual_mortality - 1.96 * SE_annual,
+          upper95CL = annual_mortality + 1.96 * SE_annual
+      )
+      
+      annualized$PFT <- p
+      annualized$calculationInterval <- paste0(ivl, ' (', as.character(t), '-year)')
+      
+      mrtlty_annualized <- rbind(mrtlty_annualized, annualized)
+    }
   }
   
   return(mrtlty_annualized)
@@ -1048,6 +1089,37 @@ make_mrtlty_tbl <- function(df, dead_ind, ivl, t){
 
 
 ```{r mort_timeseries}
+
+allmort <- data.frame()
+
+for(y in 2:length(invntry_dates[[site]])){
+  ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
+  print(ivl)
+  fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
+               ivl, '.csv')
+  raw <- read.csv(fn)
+  if(site=='Blodgett'){
+    dead_ind = 'Snag'
+  }else if(site =='STEF'){
+    dead_ind = 'D'
+  }
+  if(site=='STEF' & y == 2){
+    m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$Treatment %in% c('None', 'Thin'),], 
+                         status_col = 'Status', 
+                       dead_ind = dead_ind, ivl = ivl, 
+                       t=invntry_dates[[site]][y]-invntry_dates[[site]][y-1], 
+                       rndm_fx = 'Unit')
+  }else{
+    m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15,], status_col = 'Status', 
+                       dead_ind = dead_ind, ivl = ivl, 
+                       t=invntry_dates[[site]][y]-invntry_dates[[site]][y-1], 
+                       rndm_fx = 'Unit')
+  }
+  
+  allmort <- rbind(allmort, m)
+}
+
+read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2001-2003.csv')
 
 ### Pre-treatment to post-treatment
 ## Load pre-processed inventory data
@@ -1239,7 +1311,7 @@ mort_trt_diffs <- ggplot(mort_means_trt[mort_means_trt$Treatment!='None',],
 #   }
   
 print(mort_trt_diffs + facet_wrap(~PFT, 
-                                  ncol = 2, scales = 'free_y'))
+                                  ncol = 2))
 ```
 
 ```{r mort_csv}
