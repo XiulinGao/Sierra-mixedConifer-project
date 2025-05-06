@@ -1,0 +1,14 @@
+﻿variable,description,variable type,unit
+Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control = control.,string,NA
+prob,Probability of mortality of trees >= 15cm DBH during the given calculation interval. This is not an annualized mortality; it is the total mortality for the number of years given in the calculation interval. ,float,NA
+SE,Standard error of probability of mortality over calculation interval,float,NA
+annual_mortality,Annualized (per year) mortality rate of trees >= 15cm during the calculation interval.,float,NA
+SE_annual,Standard error of the annualized probability of mortality.,float,NA
+lower95CL,Lower bound of 95% confidence interval of annualized mortality,float,NA
+upper95CL,Lower bound of 95% confidence interval of annualized mortality,float,NA
+PFT,"Plant functional type; includes cedar, fir, pine, and oak",string,NA
+calculationInterval,Period of time (and number of years covered by that period) over which mortality is calculated,string,NA
+diff,"Difference between mortality in the Treatment relative to mortality in the Control. This is a simple difference, not a percent difference.",float,NA
+se_diff,Standard error of the difference between Treatment and Control mortality,float,NA
+lower95_diff,Lower bound of 95% confidence interval of difference between Treatment and Control mortality,float,NA
+upper95_diff,Upper bound of 95% confidence interval of difference between Treatment and Control mortality,float,NA
