@@ -365,9 +365,12 @@ bypft$fates_mortality = bypft %>% dplyr::select(starts_with("fates_mortality")) 
 ## first
 
 bypft_zero = bypft                                                                     %>% 
-             mutate(fates_ddbh_canopy = fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,
-             fates_ddbh_ustory = fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,
-             fates_ddbh        = fates_ddbh*ha_2_m2*fates_nplant)
+  mutate(fates_ddbh_canopy = ifelse(fates_nplant_canopy==0,    
+                                    fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,fates_ddbh_canopy*ha_2_m2),
+         fates_ddbh_ustory = ifelse(fates_nplant_ustory==0,
+                                    fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,fates_ddbh_ustory*ha_2_m2),
+         fates_ddbh        = ifelse(fates_nplant==0, 
+                                    fates_ddbh*ha_2_m2*fates_nplant,fates_ddbh*ha_2_m2))
 
 bypft_zero = bypft_zero                       %>% 
              dplyr::select(-c(time,month))    %>% 
@@ -381,11 +384,15 @@ bypft_zero = bypft_zero                       %>%
 
 bypft_na = bypft                     %>% 
 mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
-                           NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
+                           NA, fates_ddbh_canopy*ha_2_m2),
        fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
-                           NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
+                           NA, fates_ddbh_ustory*ha_2_m2),
        fates_ddbh        = ifelse(is.na(fates_nplant) | fates_nplant==0, 
-                           NA, fates_ddbh*ha_2_m2/fates_nplant))
+                           NA, fates_ddbh*ha_2_m2),
+       fates_nplant_canopy = ifelse(fates_nplant_canopy==0, NA, fates_nplant_canopy),
+       fates_nplant_ustory = ifelse(fates_nplant_ustory==0, NA, fates_nplant_ustory),
+       fates_nplant        = ifelse(fates_nplant==0, NA, fates_nplant))
+
 bypft_na = bypft_na                         %>% 
            dplyr::select(-c(time,month))    %>% 
            group_by(case,desc,year,pft)     %>%
@@ -546,7 +553,7 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_PFTSplit-smoothed-15.",gg_device[d])
+    f_output = paste0(f_vnam,"_PFTSplit-smoothed-15-NA.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
@@ -594,9 +601,12 @@ overall$fates_mortality = overall %>% dplyr::select(starts_with("fates_mortality
 
 
 overall_zero = overall                         %>% 
-mutate(fates_ddbh_canopy = fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,
-       fates_ddbh_ustory = fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,
-       fates_ddbh        = fates_ddbh*ha_2_m2*fates_nplant)
+ mutate(fates_ddbh_canopy = ifelse(fates_nplant_canopy==0,    
+                                    fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,fates_ddbh_canopy*ha_2_m2),
+        fates_ddbh_ustory = ifelse(fates_nplant_ustory==0,
+                                    fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,fates_ddbh_ustory*ha_2_m2),
+        fates_ddbh        = ifelse(fates_nplant==0, 
+                                    fates_ddbh*ha_2_m2*fates_nplant,fates_ddbh*ha_2_m2))
 
 overall_zero = overall_zero              %>% 
           group_by(case,desc,year)       %>% 
@@ -606,11 +616,14 @@ overall_zero = overall_zero              %>%
 
 overall_na  = overall                    %>% 
   mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
-                             NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
+                             NA, fates_ddbh_canopy*ha_2_m2),
          fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
-                             NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
+                             NA, fates_ddbh_ustory*ha_2_m2),
          fates_ddbh        = ifelse(is.na(fates_nplant) | fates_nplant==0, 
-                             NA, fates_ddbh*ha_2_m2/fates_nplant))
+                             NA, fates_ddbh*ha_2_m2),
+         fates_nplant_canopy = ifelse(fates_nplant_canopy==0, NA, fates_nplant_canopy),
+         fates_nplant_ustory = ifelse(fates_nplant_ustory==0, NA, fates_nplant_ustory),
+         fates_nplant        = ifelse(fates_nplant==0, NA, fates_nplant))
 
 overall_na  = overall_na                     %>% 
               group_by(case,desc,year)       %>% 
@@ -719,7 +732,7 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_byTreatment-smoothed-15-dbh.",gg_device[d])
+    f_output = paste0(f_vnam,"_byTreatment-smoothed-15-NA.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
@@ -749,9 +762,12 @@ bydbh = data.table::fread(file.path(main_path,file_name[3]))
 
 
 bydbh_zero = bydbh                          %>% 
-mutate(fates_ddbh_canopy = fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,
-       fates_ddbh_ustory = fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,
-       fates_ddbh        = fates_ddbh*ha_2_m2*fates_nplant)
+mutate(fates_ddbh_canopy = ifelse(fates_nplant_canopy==0,    
+                                  fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,fates_ddbh_canopy*ha_2_m2),
+        fates_ddbh_ustory = ifelse(fates_nplant_ustory==0,
+                                   fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,fates_ddbh_ustory*ha_2_m2),
+        fates_ddbh        = ifelse(fates_nplant==0, 
+                                   fates_ddbh*ha_2_m2*fates_nplant,fates_ddbh*ha_2_m2))
 
 bydbh_zero = bydbh_zero                %>% 
         mutate(year = year(time))      %>% 
@@ -762,11 +778,14 @@ bydbh_zero = bydbh_zero                %>%
 
 bydbh_na = bydbh                                          %>% 
            mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
-                                      NA, fates_ddbh_canopy*ha_2_m2/fates_nplant_canopy),
+                                      NA, fates_ddbh_canopy*ha_2_m2),
                   fates_ddbh_ustory = ifelse(is.na(fates_nplant_ustory) | fates_nplant_ustory==0,
-                                      NA, fates_ddbh_ustory*ha_2_m2/fates_nplant_ustory),
+                                      NA, fates_ddbh_ustory*ha_2_m2),
                   fates_ddbh        = ifelse(is.na(fates_nplant) | fates_nplant==0, 
-                                      NA, fates_ddbh*ha_2_m2/fates_nplant),
+                                      NA, fates_ddbh*ha_2_m2),
+                  fates_nplant_canopy = ifelse(fates_nplant_canopy==0, NA, fates_nplant_canopy),
+                  fates_nplant_ustory = ifelse(fates_nplant_ustory==0, NA, fates_nplant_ustory),
+                  fates_nplant        = ifelse(fates_nplant==0, NA, fates_nplant),
                   year = year(time))
 
 bydbh_na = bydbh_na                          %>% 
@@ -775,7 +794,7 @@ bydbh_na = bydbh_na                          %>%
            summarize_all(mean,na.rm=TRUE)    %>% 
            ungroup()
 
-bydbh_df = bydbh_na
+bydbh_df = bydbh_zero
 ddbh_vars = names(bydbh_df)[grepl("ddbh",names(bydbh_df))]
 n_ddbh = length(ddbh_vars)
 for(v in sequence(n_ddbh)){
@@ -899,7 +918,7 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_deltabySZ-smoothed.",gg_device[d])
+    f_output = paste0(f_vnam,"_deltabySZ-smoothed-zero.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
