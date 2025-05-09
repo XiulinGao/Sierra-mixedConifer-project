@@ -5,5 +5,7 @@ PFT_fraction,Average fraction (by basal area) of trees of the given PFT with DBH
 SE_PFT_fraction,Standard error of average PFT fraction in the final year of measurement.,float,NA
 Final_yr_pct_diff,Average percent difference between treatment unit and control unit PFT fraction in the final year of measurement.,float,%
 SE_final_yr,Standard error of average percent difference between treatment and control in the final year of measurement.,float,%
+End_yr,Final year of measurement,Integer,NA
 Time_wghtd_avg,"Average percent difference between treatment unit and control unit PFT fraction across all post-treatment measurements. This is a weighted average, in which differences during each measurement interval are weighted by the number of years in the measurement interval.",float,%
 SE_time_wghtd_avg,Standard error of average percent difference between treatment and control across all post-treatment measurements.,float,%
+Year_range,Range of years over which time-weighted average values are calculated,string,NA

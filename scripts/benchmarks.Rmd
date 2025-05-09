@@ -33,8 +33,17 @@ For each metric, we provide three different types of benchmarks:
 ## Set-up
 ```{r configs}
 ## Plotting colors for PFTs and treatments
-trt_cols <- list(None = 'grey', Burn = '#D55E00', 'Thin' = '#0072B2', `Burn+Thin` = '#42017C', Control = 'grey')
-pft_cols <- list(cedar = '#117733', white_pine = '#CC6677', yellow_pine = '#DDCC77', fir = '#88CCEE', `Douglas Fir` = '#882255') 
+trt_cols <- list(None = 'grey', 
+                 Burn = '#D55E00', 
+                 'Thin' = '#0072B2', 
+                 `Burn+Thin` = '#42017C', 
+                 Control = 'grey')
+
+pft_cols <- list(cedar = '#117733', 
+                 white_pine = '#CC6677', 
+                 yellow_pine = '#DDCC77', 
+                 fir = '#88CCEE', 
+                 `Douglas Fir` = '#882255') 
 
 ## Dodge for position_dodge argument to plotting
 dodge <- 0.5
@@ -50,12 +59,19 @@ trt_dates = list(
   STEF = list(
     Burn = c(2013),
     Thin = c(2011)
+  ),
+  
+  Teakettle = list(
+    Burn = c(2001, 2017),
+    Thin = c(2001),
+    `Burn+Thin` = c(2001, 2017) # Second entry was burn-only, not thin
   )
 )
 
 invntry_dates = list(
   Blodgett = c(2001, 2003, 2009, 2016, 2020),
   STEF = c(2012, 2014, 2016, 2018)
+  # For Teakettle, we do something different
 )
 ```
 
@@ -69,7 +85,7 @@ library(stringr)
 library(dplyr)
 
 ## Specify site: Blodgett, STEF, or Teakettle
-site <- 'STEF'
+site <- 'Teakettle'
 ```
 
 ```{r functions}
@@ -137,7 +153,7 @@ make_emm_df <- function(df, compare_column, var, ref, rndm_fx = NULL){
 }
 
 
-
+### Function to compute the simple average value of a metric over a measurement period
 compute_avgs_over_intervals <- function(df, var){
   ## Initialize columns
   unts <- c()
@@ -150,6 +166,7 @@ compute_avgs_over_intervals <- function(df, var){
   ## Loop through units
   for(u in unique(df$Unit)){
     udf <- df[df$Unit==u,]
+    udf <- udf[order(udf$Year),]
     
     ## Calculate the average value for each interval based on end points
     for(y in 2:length(udf$Year)){
@@ -178,36 +195,51 @@ compute_avgs_over_intervals <- function(df, var){
   return(out)
 }
 
+## Function to summarize BA and density metrics 
 make_benchmark_summary <- function(means_all_years, 
                                    group_cols, 
                                    var_nm, 
                                    nYr_df,
                                    ref_year){
   ## Subset final year values
-  fnl_yr <- means_all_years[means_all_years$End_yr==as.character(max(as.numeric(means_all_years$End_yr))),]
+  if(site=='Teakettle'){
+    ## Assumes the final measurement year we benchmark is the DBH_10Post - DBH15Post period
+    fnl_yr <- means_all_years[means_all_years$Timeframe == 'DBH_10Post',]
+  }else{
+    ## For other sites, we can just find the maximum year
+    fnl_yr <- means_all_years[means_all_years$End_yr==as.character(max(as.numeric(means_all_years$End_yr))),]
+  }
+  
   
   ### Compute average difference over post-treatment period
   ## Exclude Control plots and pre-treatment timeframes
+  ## This is okay for Teakettle if ref_year is set to 2001 and we don't include DBH_Pre
   avg_post <- means_all_years[means_all_years$Start_yr!=ref_year & 
                                 means_all_years$Treatment!='None',]
   
   ## Look up number of years included in each measurement interval 
-  avg_post$nYr <- NaN
+  avg_post$nYr <- avg_post$End_yr - avg_post$Start_yr
   
-  for(y in unique(avg_post$End_yr)){
-    nyr <- unique(nYr_df[nYr_df$End_yr==y, 'nYr'])
-    avg_post[avg_post$End_yr==y, 'nYr'] = nyr
-  }
-  
+  # for(y in unique(avg_post$End_yr)){
+  #   nyr <- unique(nYr_df[nYr_df$End_yr==y, 'nYr'])
+  #   avg_post[avg_post$End_yr==y, 'nYr'] = nyr
+  # }
+  # 
   ## Weight each measurement interval average by the number of years in interval
   wghtd_post <- avg_post %>%
     group_by(across({{group_cols}})) %>% 
     summarise(Time_wghtd_avg = weighted.mean(percent_diff, nYr),
             SE_time_wghtd_avg = sqrt(sum(nYr^2 * se_percent_diff^2) / (sum(nYr)^2)))
   
+  wghtd_post$Year_range <- NA
+  for(trt in unique(wghtd_post$Treatment)){
+    wghtd_post[wghtd_post$Treatment == trt, 'Year_range'] = paste0(
+      as.character(min(avg_post[avg_post['Treatment']==trt, 'Start_yr'])), '-', as.character(max(avg_post[avg_post['Treatment']==trt, 'End_yr'])))
+  }
+  
   ### Merge final year and average benchmarks
   out <- merge(fnl_yr[, c(group_cols, 'emmean', 'SE', 
-                               'percent_diff', 'se_percent_diff')], 
+                               'percent_diff', 'se_percent_diff', 'End_yr')], 
                wghtd_post, 
                on = group_cols)
   
@@ -237,7 +269,14 @@ We begin with the Control units and estimate the basal area at each point in tim
 ## Load basal area in each unit, which were calculated outside of this markdown file. 
 ba_by_unit <- read.csv(file.path('..', 'data', 'Benchmarking_data', site, 'ba_by_unit_year.csv'))
 
-avg_ba_by_unit <- compute_avgs_over_intervals(ba_by_unit, var = 'BAperTree_m2ha')
+if(site=='Teakettle'){
+  ## Filter the pre-treatment and pre/post measurements for the second entry burn, for which we don't have a control
+  avg_ba_by_unit <- compute_avgs_over_intervals(ba_by_unit[ba_by_unit$DBH_timeframe %in% c('DBH_Post', "DBH_10Post", "DBH_15Post"),], var = 'BAperTree_m2ha')
+}else{
+  avg_ba_by_unit <- compute_avgs_over_intervals(ba_by_unit, 
+                                                var = 'BAperTree_m2ha')
+}
+
 avg_ba_by_unit
 
 ## The reference year is the first year of measurement, unless otherwise indicated
@@ -245,19 +284,23 @@ if(site=='Blodgett'){
   ref_year <- as.character(min(ba_by_unit$Year))
 }else if (site=='STEF'){
   ref_year <- 2009
+}else if(site == 'Teakettle'){
+  ref_year <- 2001 
 }
 
 ```
 
 ```{r cntrl_ba}
-## Subset control plots
-cntrl <- ba_by_unit[ba_by_unit$Treatment=='None',]
 
-## Include a random effect for Unit because measurements are repeated on units
-cntrl_benchmarks <- make_emm_df(cntrl, compare_column = 'Year', 
-                                var = 'BAperTree_m2ha', ref = ref_year,
-                                rndm_fx = 'Unit')
-print(cntrl_benchmarks)
+### Deprecated
+# ## Subset control plots
+# cntrl <- ba_by_unit[ba_by_unit$Treatment=='None',]
+# 
+# ## Include a random effect for Unit because measurements are repeated on units
+# cntrl_benchmarks <- make_emm_df(cntrl, compare_column = 'Year', 
+#                                 var = 'BAperTree_m2ha', ref = ref_year,
+#                                 rndm_fx = 'Unit')
+# print(cntrl_benchmarks)
 ```
 
 
@@ -273,23 +316,66 @@ Here, we create a benchmark for percent difference between Control and each Trea
 ba_means_all_years <- data.frame()
 ba_contrasts_all_years <- data.frame()
 
-# Loop through measurement years
-for(year in unique(avg_ba_by_unit$End_yr)){
-  # Get Treatment means and contrasts for year
-   year_outs <- make_emm_df(avg_ba_by_unit[avg_ba_by_unit$End_yr==year,],
-                           compare_column = 'Treatment',
-                           var = 'var', 
-                           ref = 'None')
-  # Add Year columns
-  year_outs[[1]]$Start_yr <- unique(avg_ba_by_unit[avg_ba_by_unit$End_yr==year, 'Start_yr'])
-  year_outs[[2]]$Start_yr <- unique(avg_ba_by_unit[avg_ba_by_unit$End_yr==year, 'Start_yr'])
-   
-  year_outs[[1]]$End_yr <- year
-  year_outs[[2]]$End_yr <- year
+if(site == 'Teakettle'){
+  for(time in c('DBH_Post', 'DBH_10Post')){
+    yrs <- unique(ba_by_unit[ba_by_unit$DBH_timeframe==time, 'Year'])
+    
+    time_df <- avg_ba_by_unit[avg_ba_by_unit$Start_yr %in% yrs,]
+    year_outs <- make_emm_df(time_df,
+                             compare_column = 'Treatment',
+                             var = 'var',
+                             ref = 'None')
+    ## Add timeframe column
+    year_outs[[1]]$Timeframe <- time
+    
+    # Add Year columns
+    year_outs[[1]]$Start_yr = NA
+    year_outs[[2]]$Start_yr = NA
+    year_outs[[1]]$End_yr <- NA
+    year_outs[[2]]$End_yr <- NA
+    
+    for(trt in unique(year_outs[[1]]$Treatment)){
+      year_outs[[1]][year_outs[[1]]$Treatment==trt, 'Start_yr'] = 
+        year_outs[[2]][year_outs[[2]]$Treatment==trt, 'Start_yr'] = 
+        min(time_df[time_df$Treatment==trt, 'Start_yr'])
+      
+      year_outs[[1]][year_outs[[1]]$Treatment==trt, 'End_yr'] = 
+        year_outs[[2]][year_outs[[2]]$Treatment==trt, 'End_yr'] = 
+        max(time_df[time_df$Treatment==trt, 'End_yr'])
+    }
+    
+    # Bind to previous years
+    ba_means_all_years <- rbind(ba_means_all_years, year_outs[[1]])
+    ba_contrasts_all_years <- rbind(ba_contrasts_all_years, year_outs[[2]])
   
-  # Bind to previous years
-  ba_means_all_years <- rbind(ba_means_all_years, year_outs[[1]])
-  ba_contrasts_all_years <- rbind(ba_contrasts_all_years, year_outs[[2]])
+    }
+
+}else{
+  # Loop through measurement years
+  for(year in unique(avg_ba_by_unit$End_yr)){
+    # Get Treatment means and contrasts for year
+     year_outs <- make_emm_df(avg_ba_by_unit[avg_ba_by_unit$End_yr==year,],
+                             compare_column = 'Treatment',
+                             var = 'var', 
+                             ref = 'None')
+    # Add Year columns
+    year_outs[[1]]$Start_yr <- unique(avg_ba_by_unit[avg_ba_by_unit$End_yr==year, 'Start_yr'])
+    year_outs[[2]]$Start_yr <- unique(avg_ba_by_unit[avg_ba_by_unit$End_yr==year, 'Start_yr'])
+     
+    year_outs[[1]]$End_yr <- year
+    year_outs[[2]]$End_yr <- year
+    
+    # Bind to previous years
+    ba_means_all_years <- rbind(ba_means_all_years, year_outs[[1]])
+    ba_contrasts_all_years <- rbind(ba_contrasts_all_years, year_outs[[2]])
+}
+
+}
+
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  ba_means_all_years <- ba_means_all_years[!(ba_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       ba_means_all_years$Start_yr==2012),]
 }
 
 # Timeseries of absolute BAs and percent differences between control and treatment
@@ -298,11 +384,7 @@ print(ba_means_all_years)
 # Contrasts dataframe is mostly informational
 print(ba_contrasts_all_years)
 
-# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
-if(site=='STEF'){
-  ba_means_all_years <- ba_means_all_years[!(ba_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
-                       ba_means_all_years$Start_yr==2012),]
-}
+
 
 ```
 Similar to the outputs for only the Control, the first dataframe provides absolute values for average basal area under each treatment in each measurement year, and the difference at each time point between each treatment and the control. The second dataframe provides contrasts. 
@@ -314,7 +396,7 @@ ba_summary <- make_benchmark_summary(ba_means_all_years,
                                      group_cols = c('Treatment'),
                                      var_nm = 'Basal_area_m2ha',
                                      nYr_df = avg_ba_by_unit,
-                                     ref_year = 2009)
+                                     ref_year = ref_year)
 
 write.csv(ba_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/basal_area_', site, '.csv')), row.names=FALSE)
 
@@ -324,9 +406,9 @@ write.csv(ba_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/bas
 ### BA visualizations
 ```{r ba_timeseries}
 ## Visualize absolute basal area over time and across treatments
-ba_means_all_years$xlbl <- paste(ba_means_all_years$Start_yr, ba_means_all_years$End_yr, sep = '-')
+ba_means_all_years$xlbl <- paste(round(ba_means_all_years$Start_yr, 1), round(ba_means_all_years$End_yr, 1), sep = '-')
 
-ba_time_plot <- ggplot(ba_means_all_years[ba_means_all_years$Start_yr!=thin_ref,],
+ba_time_plot <- ggplot(ba_means_all_years[ba_means_all_years$Start_yr!=ref_year,],
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
                   col=Treatment,fill=Treatment))+
   geom_bar(stat="identity", position = 'dodge') +
@@ -347,31 +429,32 @@ print(ba_time_plot)
 
 ```
 ```{r ba_cntrl_diffs}
-## Visualize % difference in Control basal area at each measurement year relative to the first measurement
-ba_cntl_diffs <- ggplot(cntrl_benchmarks[[1]][cntrl_benchmarks[[1]]$Year!=ref_year,],
-              aes(x=Year, y=percent_diff, ymin=percent_diff - se_percent_diff, ## Can use SE or 95CL
-                  ymax=percent_diff + se_percent_diff)) + 
-  
-  # black line is 0
-  geom_hline(yintercept = 0, lty = 3) + 
-  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
-  xlab("Year") +
-  ylab("% difference from reference year basal area") + 
-  ggtitle(site) +
-# Styling
-  theme_minimal(base_size = 14) +
-  theme(axis.line = element_line(color='black'), 
-        panel.grid.minor = element_blank(),
-        panel.grid.major = element_blank())
-  
-print(ba_cntl_diffs)
+### Deprecated
+# ## Visualize % difference in Control basal area at each measurement year relative to the first measurement
+# ba_cntl_diffs <- ggplot(cntrl_benchmarks[[1]][cntrl_benchmarks[[1]]$Year!=ref_year,],
+#               aes(x=Year, y=percent_diff, ymin=percent_diff - se_percent_diff, ## Can use SE or 95CL
+#                   ymax=percent_diff + se_percent_diff)) + 
+#   
+#   # black line is 0
+#   geom_hline(yintercept = 0, lty = 3) + 
+#   geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
+#   xlab("Year") +
+#   ylab("% difference from reference year basal area") + 
+#   ggtitle(site) +
+# # Styling
+#   theme_minimal(base_size = 14) +
+#   theme(axis.line = element_line(color='black'), 
+#         panel.grid.minor = element_blank(),
+#         panel.grid.major = element_blank())
+#   
+# print(ba_cntl_diffs)
 ```
 
 
 ```{r ba_trt_diffs}
 ## Visualize % difference between Treated and Control basal area at each measurement time. 
 ba_trt_diffs <- ggplot(ba_means_all_years[ba_means_all_years$Treatment!='None' & 
-                                            ba_means_all_years$Start_yr!=thin_ref,],
+                                            ba_means_all_years$Start_yr!=ref_year,],
               aes(x=xlbl, y=percent_diff, ymin=percent_diff - se_percent_diff,  ## SE or 95CL
                   ymax=percent_diff + se_percent_diff, 
                   col=Treatment)) + 
@@ -410,13 +493,23 @@ print(ba_trt_diffs)
 ```
 
 ## Benchmark 2: PFT composition
-```{r trt_pft}
+```{r avg_pft}
 ## Load basal area in each unit, which were calculated outside of this markdown file. 
 pft_by_unit <- read.csv(file.path('..', 'data', 'Benchmarking_data', site, 'pft_by_unit_year.csv'))
 
-pft_fracs <- pft_by_unit %>%
-  group_by(Year, Unit, Treatment) %>%
-  mutate(PFT_fraction = BAperTree_m2ha/sum(BAperTree_m2ha))
+if(site == 'Teakettle'){
+  pft_fracs <- pft_by_unit %>% 
+    group_by(DBH_timeframe, Unit, Treatment) %>%
+    mutate(PFT_fraction = BAperTree_m2ha/sum(BAperTree_m2ha))
+  
+  pft_fracs <- pft_fracs[pft_fracs$DBH_timeframe %in% c('DBH_Pre', 'DBH_Post', "DBH_10Post", "DBH_15Post"),]
+  
+}else{
+  pft_fracs <- pft_by_unit %>%
+    group_by(Year, Unit, Treatment) %>%
+    mutate(PFT_fraction = BAperTree_m2ha/sum(BAperTree_m2ha))
+
+}
 
 ## Compute average PFT BA over each measurement interval
 all_pft_avgs <- data.frame()
@@ -431,36 +524,89 @@ for(p in unique(pft_fracs$PFT)){
 
 all_pft_avgs
 
+```
+```{r trt_pft}
+
 ### Get treatment differences for each measurement period and pft
 ## Initialize dataframes to append yearly results to
 pft_means_all_years <- data.frame()
 pft_contrasts_all_years <- data.frame()
 
-# Loop through PFTs and measurement years
-for(p in unique(all_pft_avgs$PFT)){
-  for(year in unique(all_pft_avgs$End_yr)){
-  # Get Treatment means and contrasts for year
-    year_outs <- make_emm_df(all_pft_avgs[all_pft_avgs$End_yr==year & 
-                                            all_pft_avgs$PFT==p,],
-                             compare_column = 'Treatment',
-                             var = 'var', 
-                             ref = 'None')
-    # Add Year columns
-    year_outs[[1]]$Start_yr <- unique(all_pft_avgs[all_pft_avgs$End_yr==year, 'Start_yr'])
-    year_outs[[2]]$Start_yr <- unique(all_pft_avgs[all_pft_avgs$End_yr==year, 'Start_yr'])
-     
-    year_outs[[1]]$End_yr <- year
-    year_outs[[2]]$End_yr <- year
+if(site == 'Teakettle'){
+  for(p in unique(all_pft_avgs$PFT)){
+    for(time in c('DBH_Post', 'DBH_10Post')){
+      yrs <- unique(pft_fracs$Year[pft_fracs$DBH_timeframe==time])
+      
+      time_df <- all_pft_avgs[all_pft_avgs$Start_yr %in% yrs & all_pft_avgs$PFT==p,]
+      year_outs <- make_emm_df(time_df,
+                               compare_column = 'Treatment',
+                               var = 'var',
+                               ref = 'None')
+      ## Add timeframe column
+      year_outs[[1]]$Timeframe <- time
+      
+      # Add Year columns
+      year_outs[[1]]$Start_yr = NA
+      year_outs[[2]]$Start_yr = NA
+      year_outs[[1]]$End_yr <- NA
+      year_outs[[2]]$End_yr <- NA
+      
+      for(trt in unique(year_outs[[1]]$Treatment)){
+        year_outs[[1]][year_outs[[1]]$Treatment==trt, 'Start_yr'] = 
+          year_outs[[2]][year_outs[[2]]$Treatment==trt, 'Start_yr'] = 
+          min(time_df[time_df$Treatment==trt, 'Start_yr'])
+        
+        year_outs[[1]][year_outs[[1]]$Treatment==trt, 'End_yr'] = 
+          year_outs[[2]][year_outs[[2]]$Treatment==trt, 'End_yr'] = 
+          max(time_df[time_df$Treatment==trt, 'End_yr'])
+      }
+      
+      # Add PFT column
+      year_outs[[1]]$PFT <- p
+      year_outs[[2]]$PFT <- p
+      
+      # Bind to previous years
+      pft_means_all_years <- rbind(pft_means_all_years, year_outs[[1]])
+      pft_contrasts_all_years <- rbind(pft_contrasts_all_years, year_outs[[2]])
     
-    # Add PFT column
-    year_outs[[1]]$PFT <- p
-    year_outs[[2]]$PFT <- p
-    
-    # Bind to previous years
-    pft_means_all_years <- rbind(pft_means_all_years, year_outs[[1]])
-    pft_contrasts_all_years <- rbind(pft_contrasts_all_years, year_outs[[2]])
+      }
+  }
+  
+
+}else{
+  # Loop through PFTs and measurement years
+  for(p in unique(all_pft_avgs$PFT)){
+    for(year in unique(all_pft_avgs$End_yr)){
+    # Get Treatment means and contrasts for year
+      year_outs <- make_emm_df(all_pft_avgs[all_pft_avgs$End_yr==year & 
+                                              all_pft_avgs$PFT==p,],
+                               compare_column = 'Treatment',
+                               var = 'var', 
+                               ref = 'None')
+      # Add Year columns
+      year_outs[[1]]$Start_yr <- unique(all_pft_avgs[all_pft_avgs$End_yr==year, 'Start_yr'])
+      year_outs[[2]]$Start_yr <- unique(all_pft_avgs[all_pft_avgs$End_yr==year, 'Start_yr'])
+       
+      year_outs[[1]]$End_yr <- year
+      year_outs[[2]]$End_yr <- year
+      
+      # Add PFT column
+      year_outs[[1]]$PFT <- p
+      year_outs[[2]]$PFT <- p
+      
+      # Bind to previous years
+      pft_means_all_years <- rbind(pft_means_all_years, year_outs[[1]])
+      pft_contrasts_all_years <- rbind(pft_contrasts_all_years, year_outs[[2]])
+    }
+  
   }
 
+}
+
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  pft_means_all_years <- pft_means_all_years[!(pft_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       pft_means_all_years$Start_yr==2012),]
 }
 
 # Timeseries of absolute BAs and percent differences between control and treatment
@@ -470,11 +616,8 @@ print(pft_means_all_years)
 # print(pft_contrasts_all_years)
 
 
-# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
-if(site=='STEF'){
-  pft_means_all_years <- pft_means_all_years[!(pft_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
-                       pft_means_all_years$Start_yr==2012),]
-}
+
+
 ```
 
 
@@ -484,7 +627,7 @@ pft_summary <- make_benchmark_summary(pft_means_all_years,
                                       group_cols = c('Treatment', 'PFT'),
                                       var_nm = 'PFT_fraction', 
                                       nYr_df = all_pft_avgs,
-                                      ref_year = 2009)
+                                      ref_year = ref_year)
 
 write.csv(pft_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/pft_composition_', site, '.csv')), row.names=FALSE)
 
@@ -496,9 +639,9 @@ pft_summary
 ### PFT composition visualization
 ```{r pft_timeseries}
 ## Visualize absolute basal area over time and across treatments
-pft_means_all_years$xlbl <- paste(pft_means_all_years$Start_yr, pft_means_all_years$End_yr, sep = '-')
+pft_means_all_years$xlbl <- paste(round(pft_means_all_years$Start_yr, 1), round(pft_means_all_years$End_yr, 1), sep = '-')
 
-pft_time_plot <- ggplot(pft_means_all_years[pft_means_all_years$Start_yr!=thin_ref,],
+pft_time_plot <- ggplot(pft_means_all_years[pft_means_all_years$Start_yr!=ref_year,],
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
                   fill=PFT))+
   geom_bar(stat="identity") +
@@ -562,36 +705,85 @@ print(pft_trt_diffs + facet_wrap(~PFT, scales = 'free_y'))
 ## Benchmark 3: Stem density
 The next benchmark is stem density, measured as number of stems per hectare.
 
-```{r tph_trt}
+```{r avg_tph}
 ## Load stem density in each unit, which were calculated outside of this markdown file. 
 tph_by_unit <- read.csv(file.path('..', 'data', 'Benchmarking_data', site, 'stand_density_by_unit_year.csv'))
 
 ## Average over each measurement interval
-avg_tph_by_unit <- compute_avgs_over_intervals(tph_by_unit, var = 'TPH')
-avg_tph_by_unit
+if(site == 'Teakettle'){
+  avg_tph_by_unit <- compute_avgs_over_intervals(tph_by_unit[tph_by_unit$DBH_timeframe %in% c('DBH_Pre', 'DBH_Post', "DBH_10Post", "DBH_15Post"),], var = 'TPH')
+}else{
+  avg_tph_by_unit <- compute_avgs_over_intervals(tph_by_unit, var = 'TPH')
+  avg_tph_by_unit
+}
 
+```
 
+```{r trt_tph}
 ## Initialize dataframes to append yearly results to
 tph_means_all_years <- data.frame()
 tph_contrasts_all_years <- data.frame()
 
-# Loop through measurement years
-for(year in unique(avg_tph_by_unit$End_yr)){
-  # Get Treatment means and contrasts for year
-   year_outs <- make_emm_df(avg_tph_by_unit[avg_tph_by_unit$End_yr==year,],
-                           compare_column = 'Treatment',
-                           var = 'var', 
-                           ref = 'None')
-  # Add Year columns
-  year_outs[[1]]$Start_yr <- unique(avg_tph_by_unit[avg_tph_by_unit$End_yr==year, 'Start_yr'])
-  year_outs[[2]]$Start_yr <- unique(avg_tph_by_unit[avg_tph_by_unit$End_yr==year, 'Start_yr'])
-   
-  year_outs[[1]]$End_yr <- year
-  year_outs[[2]]$End_yr <- year
+
+if(site == 'Teakettle'){
+  for(time in c('DBH_Post', 'DBH_10Post')){
+    yrs <- unique(tph_by_unit[tph_by_unit$DBH_timeframe==time, 'Year'])
+    
+    time_df <- avg_tph_by_unit[avg_tph_by_unit$Start_yr %in% yrs,]
+    year_outs <- make_emm_df(time_df,
+                             compare_column = 'Treatment',
+                             var = 'var',
+                             ref = 'None')
+    ## Add timeframe column
+    year_outs[[1]]$Timeframe <- time
+    
+    # Add Year columns
+    year_outs[[1]]$Start_yr = NA
+    year_outs[[2]]$Start_yr = NA
+    year_outs[[1]]$End_yr <- NA
+    year_outs[[2]]$End_yr <- NA
+    
+    for(trt in unique(year_outs[[1]]$Treatment)){
+      year_outs[[1]][year_outs[[1]]$Treatment==trt, 'Start_yr'] = 
+        year_outs[[2]][year_outs[[2]]$Treatment==trt, 'Start_yr'] = 
+        min(time_df[time_df$Treatment==trt, 'Start_yr'])
+      
+      year_outs[[1]][year_outs[[1]]$Treatment==trt, 'End_yr'] = 
+        year_outs[[2]][year_outs[[2]]$Treatment==trt, 'End_yr'] = 
+        max(time_df[time_df$Treatment==trt, 'End_yr'])
+    }
+    
+    # Bind to previous years
+    tph_means_all_years <- rbind(tph_means_all_years, year_outs[[1]])
+    tph_contrasts_all_years <- rbind(tph_contrasts_all_years, year_outs[[2]])
   
-  # Bind to previous years
-  tph_means_all_years <- rbind(tph_means_all_years, year_outs[[1]])
-  tph_contrasts_all_years <- rbind(tph_contrasts_all_years, year_outs[[2]])
+    }
+
+}else{
+  # Loop through measurement years
+  for(year in unique(avg_tph_by_unit$End_yr)){
+    # Get Treatment means and contrasts for year
+     year_outs <- make_emm_df(avg_tph_by_unit[avg_tph_by_unit$End_yr==year,],
+                             compare_column = 'Treatment',
+                             var = 'var', 
+                             ref = 'None')
+    # Add Year columns
+    year_outs[[1]]$Start_yr <- unique(avg_tph_by_unit[avg_tph_by_unit$End_yr==year, 'Start_yr'])
+    year_outs[[2]]$Start_yr <- unique(avg_tph_by_unit[avg_tph_by_unit$End_yr==year, 'Start_yr'])
+     
+    year_outs[[1]]$End_yr <- year
+    year_outs[[2]]$End_yr <- year
+    
+    # Bind to previous years
+    tph_means_all_years <- rbind(tph_means_all_years, year_outs[[1]])
+    tph_contrasts_all_years <- rbind(tph_contrasts_all_years, year_outs[[2]])
+  }
+}
+
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  tph_means_all_years <- tph_means_all_years[!(tph_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       tph_means_all_years$Start_yr==2012),]
 }
 
 # Timeseries of absolute BAs and percent differences between control and treatment
@@ -600,13 +792,10 @@ print(tph_means_all_years)
 # Contrasts dataframe is mostly informational
 print(tph_contrasts_all_years)
 
-# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
-if(site=='STEF'){
-  tph_means_all_years <- tph_means_all_years[!(tph_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
-                       tph_means_all_years$Start_yr==2012),]
-}
+
 
 ```
+
 
 ```{r tph_summary}
 tph_summary <- make_benchmark_summary(tph_means_all_years, 
@@ -624,7 +813,7 @@ write.csv(tph_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/st
 ### Stem density visualizations
 ```{r tph_timeseries}
 ## Visualize absolute basal area over time and across treatments
-tph_means_all_years$xlbl <- paste(tph_means_all_years$Start_yr, tph_means_all_years$End_yr, sep = '-')
+tph_means_all_years$xlbl <- paste(round(tph_means_all_years$Start_yr, 1), round(tph_means_all_years$End_yr, 1), sep = '-')
 
 tph_time_plot <- ggplot(tph_means_all_years[tph_means_all_years$Start_yr!=ref_year,],
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
@@ -688,7 +877,7 @@ print(tph_trt_diffs)
 ```
 
 
-## Size Distribution
+## Benchmark 4: Size Distribution
 The next benchmark is the size class distribution of the stand. We chose the following DBH bins, consistent across sites: 
 
 * <15-20cm
@@ -708,12 +897,16 @@ The process is very similar to that we took for basal area. We begin with the Co
 
 ### Treatments: difference in size distribution at different times, relative to the Control
 Here, we create a benchmark for percent difference between Control and each Treatment for each measurement year and each size bin. 
-```{r size_trt}
+```{r avg_size}
 ## Load size distributions for each unit, which were calculated outside of this markdown file. 
 sizeDist_by_unit <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'size_Dist_by_unit_year.csv'))
 
 # Make size class as factor with order
 sizeDist_by_unit$Size_class <- factor(sizeDist_by_unit$Size_class, unique(sizeDist_by_unit$Size_class))
+
+if(site == 'Teakettle'){
+  sizeDist_by_unit <- sizeDist_by_unit[sizeDist_by_unit$DBH_timeframe %in% c('DBH_Pre', 'DBH_Post', "DBH_10Post", "DBH_15Post"),]
+}
 
 ## Compute average PFT BA over each measurement interval
 all_size_avgs <- data.frame()
@@ -728,36 +921,88 @@ for(s in unique(sizeDist_by_unit$Size_class)){
 
 all_size_avgs
 
+```
+
+```{r trt_size}
 ### Get treatment differences for each measurement period and size 
 ## Initialize dataframes to append yearly results to
 size_means_all_years <- data.frame()
 size_contrasts_all_years <- data.frame()
 
-# Loop through size classes and measurement years
-for(s in unique(all_size_avgs$Size_class)){
-  for(year in unique(all_size_avgs$End_yr)){
-  # Get Treatment means and contrasts for year
-    year_outs <- make_emm_df(all_size_avgs[all_size_avgs$End_yr==year & 
-                                            all_size_avgs$Size_class==s,],
-                             compare_column = 'Treatment',
-                             var = 'var', 
-                             ref = 'None')
-    # Add Year columns
-    year_outs[[1]]$Start_yr <- unique(all_size_avgs[all_size_avgs$End_yr==year, 'Start_yr'])
-    year_outs[[2]]$Start_yr <- unique(all_size_avgs[all_size_avgs$End_yr==year, 'Start_yr'])
-     
-    year_outs[[1]]$End_yr <- year
-    year_outs[[2]]$End_yr <- year
+if(site == 'Teakettle'){
+  for(s in unique(all_size_avgs$Size_class)){
+    for(time in c('DBH_Post', 'DBH_10Post')){
+      yrs <- unique(sizeDist_by_unit$Year[sizeDist_by_unit$DBH_timeframe==time])
+      
+      time_df <- all_size_avgs[all_size_avgs$Start_yr %in% yrs & all_size_avgs$Size_class==s,]
+      year_outs <- make_emm_df(time_df,
+                               compare_column = 'Treatment',
+                               var = 'var',
+                               ref = 'None')
+      ## Add timeframe column
+      year_outs[[1]]$Timeframe <- time
+      
+      # Add Year columns
+      year_outs[[1]]$Start_yr = NA
+      year_outs[[2]]$Start_yr = NA
+      year_outs[[1]]$End_yr <- NA
+      year_outs[[2]]$End_yr <- NA
+      
+      for(trt in unique(year_outs[[1]]$Treatment)){
+        year_outs[[1]][year_outs[[1]]$Treatment==trt, 'Start_yr'] = 
+          year_outs[[2]][year_outs[[2]]$Treatment==trt, 'Start_yr'] = 
+          min(time_df[time_df$Treatment==trt, 'Start_yr'])
+        
+        year_outs[[1]][year_outs[[1]]$Treatment==trt, 'End_yr'] = 
+          year_outs[[2]][year_outs[[2]]$Treatment==trt, 'End_yr'] = 
+          max(time_df[time_df$Treatment==trt, 'End_yr'])
+      }
+      
+      # Add Size column
+      year_outs[[1]]$Size_class <- s
+      year_outs[[2]]$Size_class <- s
+      
+      # Bind to previous years
+      size_means_all_years <- rbind(size_means_all_years, year_outs[[1]])
+      size_contrasts_all_years <- rbind(size_contrasts_all_years, year_outs[[2]])
     
-    # Add Size column
-    year_outs[[1]]$Size_class <- s
-    year_outs[[2]]$Size_class <- s
-    
-    # Bind to previous years
-    size_means_all_years <- rbind(size_means_all_years, year_outs[[1]])
-    size_contrasts_all_years <- rbind(size_contrasts_all_years, year_outs[[2]])
+      }
+  }
+  
+
+}else{
+  # Loop through size classes and measurement years
+  for(s in unique(all_size_avgs$Size_class)){
+    for(year in unique(all_size_avgs$End_yr)){
+    # Get Treatment means and contrasts for year
+      year_outs <- make_emm_df(all_size_avgs[all_size_avgs$End_yr==year & 
+                                              all_size_avgs$Size_class==s,],
+                               compare_column = 'Treatment',
+                               var = 'var', 
+                               ref = 'None')
+      # Add Year columns
+      year_outs[[1]]$Start_yr <- unique(all_size_avgs[all_size_avgs$End_yr==year, 'Start_yr'])
+      year_outs[[2]]$Start_yr <- unique(all_size_avgs[all_size_avgs$End_yr==year, 'Start_yr'])
+       
+      year_outs[[1]]$End_yr <- year
+      year_outs[[2]]$End_yr <- year
+      
+      # Add Size column
+      year_outs[[1]]$Size_class <- s
+      year_outs[[2]]$Size_class <- s
+      
+      # Bind to previous years
+      size_means_all_years <- rbind(size_means_all_years, year_outs[[1]])
+      size_contrasts_all_years <- rbind(size_contrasts_all_years, year_outs[[2]])
+    }
+  
+  }
   }
 
+# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
+if(site=='STEF'){
+  size_means_all_years <- size_means_all_years[!(size_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
+                       size_means_all_years$Start_yr==2012),]
 }
 
 # Timeseries of absolute TPH and percent differences between control and treatment
@@ -766,13 +1011,10 @@ print(size_means_all_years)
 # # Contrasts dataframe is mostly informational
 # print(size_contrasts_all_years)
 
-# For STEF, remove the 2012-2014 period for burned units because burn happened in 2013
-if(site=='STEF'){
-  size_means_all_years <- size_means_all_years[!(size_means_all_years$Treatment %in% c('Burn', 'Burn+Thin') & 
-                       size_means_all_years$Start_yr==2012),]
-}
+
 
 ```
+
 
 ```{r size_summary}
 
@@ -790,34 +1032,36 @@ size_summary
 ```
 
 ```{r cntrl_size}
-# Subset control plots
-cntrl <- sizeDist_by_unit[sizeDist_by_unit$Treatment=='None',]
 
-# Set reference year as the first measurement year
-ref_year <- as.character(min(cntrl$Year))
-
-## Initialize dataframes to append yearly results to
-size_means_cntrl <- data.frame()
-size_contrasts_cntrl <- data.frame()
-
-## Loop through size classes
-for(size in unique(cntrl$Size.Class)){
-  # Get means and contrasts for size class
-   size_outs <- make_emm_df(cntrl[cntrl$Size.Class==size,],
-                           compare_column = 'Year',
-                           var = 'TPH', 
-                           ref = ref_year, rndm_fx = 'Unit')
-  # Add a Year column
-  size_outs[[1]]$Size_class <- size
-  size_outs[[2]]$Size_class <- size
-  
-  # Bind to previous years
-  size_means_cntrl <- rbind(size_means_cntrl, size_outs[[1]])
-  size_contrasts_cntrl <- rbind(size_contrasts_cntrl, size_outs[[2]])
-}
-
-print(size_means_cntrl)
-print(size_contrasts_cntrl)
+### Deprecated
+# # Subset control plots
+# cntrl <- sizeDist_by_unit[sizeDist_by_unit$Treatment=='None',]
+# 
+# # Set reference year as the first measurement year
+# ref_year <- as.character(min(cntrl$Year))
+# 
+# ## Initialize dataframes to append yearly results to
+# size_means_cntrl <- data.frame()
+# size_contrasts_cntrl <- data.frame()
+# 
+# ## Loop through size classes
+# for(size in unique(cntrl$Size.Class)){
+#   # Get means and contrasts for size class
+#    size_outs <- make_emm_df(cntrl[cntrl$Size.Class==size,],
+#                            compare_column = 'Year',
+#                            var = 'TPH', 
+#                            ref = ref_year, rndm_fx = 'Unit')
+#   # Add a Year column
+#   size_outs[[1]]$Size_class <- size
+#   size_outs[[2]]$Size_class <- size
+#   
+#   # Bind to previous years
+#   size_means_cntrl <- rbind(size_means_cntrl, size_outs[[1]])
+#   size_contrasts_cntrl <- rbind(size_contrasts_cntrl, size_outs[[2]])
+# }
+# 
+# print(size_means_cntrl)
+# print(size_contrasts_cntrl)
 
 ```
 
@@ -826,7 +1070,8 @@ print(size_contrasts_cntrl)
 ```{r size_time}
 
 ## Visualize size distribution over time and across treatments
-size_means_all_years$xlbl <- paste(size_means_all_years$Start_yr, size_means_all_years$End_yr, sep = '-')
+size_means_all_years$xlbl <- paste(round(size_means_all_years$Start_yr, 1), 
+                                   round(size_means_all_years$End_yr, 1), sep = '-')
 
 
 ## Function to make plot of size class distributions for a given year, faceted by treatment
@@ -860,26 +1105,27 @@ for(l in unique(size_means_all_years$xlbl)){
 
 ```
 ```{r size_cntrl_diffs}
-## Visualize % difference in Control size distribution over time, relative to first year
-size_cntl_diffs <- ggplot(size_means_cntrl[size_means_cntrl$Year != ref_year,],
-              aes(x=factor(Year), y=percent_diff, ymin=percent_diff - se_percent_diff, 
-                  ymax=percent_diff + se_percent_diff)) + 
-  
-  # black line is 0
-  geom_hline(yintercept = 0, lty = 3) + 
-  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
-  xlab("Year") +
-  ylab("% difference from reference year TPH") + 
-  ggtitle(site) + 
-# Styling
-  theme_minimal(base_size = 14) +
-  theme(axis.line = element_line(color='black'), 
-        panel.grid.minor = element_blank(),
-        panel.grid.major = element_blank(),
-        axis.text.x = element_text(angle=45, hjust = 1))
-  
-print(size_cntl_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size.Class)), 
-                                   ncol = 3, scales = 'free_y'))
+### Deprecated
+# ## Visualize % difference in Control size distribution over time, relative to first year
+# size_cntl_diffs <- ggplot(size_means_cntrl[size_means_cntrl$Year != ref_year,],
+#               aes(x=factor(Year), y=percent_diff, ymin=percent_diff - se_percent_diff, 
+#                   ymax=percent_diff + se_percent_diff)) + 
+#   
+#   # black line is 0
+#   geom_hline(yintercept = 0, lty = 3) + 
+#   geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
+#   xlab("Year") +
+#   ylab("% difference from reference year TPH") + 
+#   ggtitle(site) + 
+# # Styling
+#   theme_minimal(base_size = 14) +
+#   theme(axis.line = element_line(color='black'), 
+#         panel.grid.minor = element_blank(),
+#         panel.grid.major = element_blank(),
+#         axis.text.x = element_text(angle=45, hjust = 1))
+#   
+# print(size_cntl_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size.Class)), 
+#                                    ncol = 3, scales = 'free_y'))
 ```
 
 
@@ -921,7 +1167,7 @@ print(size_trt_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Si
                                   ncol = 3, scales = 'free_y'))
 ```
 
-## Benchmark 3: Growth
+## Benchmark 5: Growth
 Growth benchmarks leverage modeled growth per site and PFT from Katz et al. forthcoming. The structure of the growth benchmarks is different from that of the other benchmarks in that we do not incorporate a time component to growth. Thus, the growth estimates and differences cover the entire post-treatment measurement timeframe for each site. 
 
 ### Tree growth in the Control
@@ -938,7 +1184,7 @@ if(site=='Blodgett'){
 }else if(site == 'STEF'){
   site_df <- growth_params[growth_params$site=='STEF-VDT',]
 }else{
-  site_df <- growth_params[growth_params$site == site]
+  site_df <- growth_params[growth_params$site == site,]
 }
 
 site_growth <- site_df[grep('cntrl_growth', site_df$parameter),]
@@ -1085,6 +1331,93 @@ make_mrtlty_tbl <- function(df, status_col, dead_ind, ivl, t, rndm_fx = NULL){
 }
 
 
+
+## t1, t2 reference DBH_Timeframe values: DBH_Post, DBH_10Post, DBH_15Post
+get_teakettle_mort <- function(t1, t2, ref = 'None'){
+  ## Open file with number of deaths and number of survivors for t1-t2 period
+  fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', t1, '-', t2, '.csv')
+  df <- read.csv(fn)
+  
+  ## Treatment as factor, reference level is the control
+  df$Treatment <- factor(df$Treatment, levels = c('None', 'Burn', 'Thin', 'Burn+Thin'))
+  
+  ## Convert deaths to binary
+  df$Dead <- ifelse(df$Status==2, 1, 0)
+  
+  ## Add the first and last year of the measurement period of the plot
+  df$Mort_y1 <- NA
+  df$Mort_y2 <- NA
+
+  for(u in unique(df$Plot)){
+    df$Mort_y1[df$Plot==u] = timeframe_lookup$Year[timeframe_lookup$Unit==u & timeframe_lookup$DBH_timeframe==t1]
+    df$Mort_y2[df$Plot==u] = timeframe_lookup$Year[timeframe_lookup$Unit==u & timeframe_lookup$DBH_timeframe==t2]
+  }
+  
+  ## Initialize dataframe to hold estimates for all PFTs
+  mrtlty_annualized <- data.frame()
+  
+  ## Loop through PFTs
+  for(p in c('cedar', 'fir', 'pine', 'oak')){
+    # print(p)
+    to_analyze <- df[df$PFT_simple==p,]
+    ## Model annualized mortality
+    mod <- glmer(Dead ~ Treatment + offset(log(Mort_y2 - Mort_y1)) + (1 | Plot),
+        data = to_analyze,
+        family = poisson)
+    
+    ## Get differences between treatments
+    emm <- emmeans(mod, ~Treatment, type = 'response')
+    emm_df <- as.data.frame(emm)
+    
+    ## Add a PFT column
+    emm_df$PFT <- p
+      
+    ## Add percent difference
+    ref_value <- emm_df$rate[emm_df$Treatment == ref]
+    emm_df$percent_diff <- 100 * (emm_df$rate - ref_value) / ref_value
+      
+    ## Calculate standard error on percent difference
+    ## Initialize column
+    emm_df$se_percent_diff <- NA
+    
+    compare_column <- 'Treatment'
+    ## Loop through all rows (skip the reference/control row)
+    for (i in 1:nrow(emm_df)) {
+      if (emm_df[[compare_column]][i] != ref) {
+        mu_t <- emm_df$rate[i]
+        mu_c <- emm_df$rate[emm_df[[compare_column]] == ref]
+        
+        se_t <- emm_df$SE[i]
+        se_c <- emm_df$SE[emm_df[[compare_column]] == ref]
+        
+        # Derivatives
+        dfd_mt <- 100 / mu_c
+        dfd_mc <- -100 * mu_t / (mu_c^2)
+        
+        # Approximate variance using delta method
+        var_pd <- (dfd_mt^2) * (se_t^2) + (dfd_mc^2) * (se_c^2)
+        
+        # SE of percent difference
+        emm_df$se_percent_diff[i] <- sqrt(var_pd)
+      }
+    }
+    
+    mrtlty_annualized <- rbind(mrtlty_annualized, emm_df)
+  }
+  
+  ## Identify year range associated with measurements for each treatment
+  mrtlty_annualized$calculationInterval = NA
+  for(trt in unique(mrtlty_annualized$Treatment)){
+    mrtlty_annualized[mrtlty_annualized$Treatment == trt, 'calculationInterval'] = paste0(
+      as.character(min(df$Mort_y1[df$Treatment==trt])), '-', as.character(max(df$Mort_y2[df$Treatment==trt])))
+      }
+  
+
+  return(mrtlty_annualized)
+}
+
+
+
 ```
 
 
@@ -1092,73 +1425,72 @@ make_mrtlty_tbl <- function(df, status_col, dead_ind, ivl, t, rndm_fx = NULL){
 
 allmort <- data.frame()
 
-for(y in 2:length(invntry_dates[[site]])){
-  ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
-  print(ivl)
-  fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
-               ivl, '.csv')
-  raw <- read.csv(fn)
+if(site!='Teakettle'){
   if(site=='Blodgett'){
+    status_col = 'status'
     dead_ind = 'Snag'
-  }else if(site =='STEF'){
-    dead_ind = 'D'
-  }
-  if(site=='STEF' & y == 2){
-    m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$Treatment %in% c('None', 'Thin'),], 
-                         status_col = 'Status', 
-                       dead_ind = dead_ind, ivl = ivl, 
-                       t=invntry_dates[[site]][y]-invntry_dates[[site]][y-1], 
-                       rndm_fx = 'Unit')
-  }else{
-    m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15,], status_col = 'Status', 
-                       dead_ind = dead_ind, ivl = ivl, 
-                       t=invntry_dates[[site]][y]-invntry_dates[[site]][y-1], 
-                       rndm_fx = 'Unit')
-  }
+    rndm_fx = 'comp/plot_id'
+    }else if(site =='STEF'){
+      status_col = 'Status'
+      dead_ind = 'D'
+      rndm_fx = 'Unit'
+      }
   
-  allmort <- rbind(allmort, m)
+  for(y in 2:length(invntry_dates[[site]])){
+    ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
+    print(ivl)
+    fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
+                 ivl, '.csv')
+    raw <- read.csv(fn)
+
+    if(site=='STEF' & y == 2){
+      m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$Treatment %in% c('None', 'Thin'),], 
+                           status_col = 'Status', 
+                         dead_ind = dead_ind, ivl = ivl, 
+                         t=invntry_dates[[site]][y]-invntry_dates[[site]][y-1], 
+                         rndm_fx = 'Unit')
+    }else{
+      m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15,], status_col=status_col, 
+                         dead_ind = dead_ind, ivl = ivl, 
+                         t=invntry_dates[[site]][y]-invntry_dates[[site]][y-1], 
+                         rndm_fx = rndm_fx)
+    }
+    
+    allmort <- rbind(allmort, m)
+  }
+}else{
+  timeframe_lookup <- ba_by_unit %>% 
+    group_by(Unit, DBH_timeframe) %>%
+    summarize(
+      Year = mean(Year)
+    )
+  
+  for(ivl in c('DBH_Post-DBH_10Post', 'DBH_10Post-DBH_15Post')){
+    t1 <- unlist(strsplit(ivl, '-'))[1]
+    t2 <- unlist(strsplit(ivl, '-'))[2]
+    
+    new <- get_teakettle_mort(t1, t2)
+    
+    allmort <- rbind(allmort, new)
+  }
+  allmort <- allmort[,c('Treatment', 'rate', 'SE', 'asymp.LCL', 'asymp.UCL', 'PFT', 'calculationInterval', 'percent_diff', 'se_percent_diff')]
+  colnames(allmort)[colnames(allmort)=='rate'] = 'prob'
 }
-
-read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2001-2003.csv')
-
-### Pre-treatment to post-treatment
-## Load pre-processed inventory data
-raw <- read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2001-2003.csv')
-## Label to indicate the time interval over which mortality is calculated
-ivl <- "2001-2003"
-m_01_03 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t = 2)
-
-### First post-treatment 
-raw <- read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2003-2009.csv')
-ivl <- "2003-2009"
-m_03_09 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t=6)
-
-### Second post-treatment
-raw <- read.csv('../data/Benchmarking_data/Blodgett/mortality_invntry_2009-2016.csv')
-ivl <- "2009-2016"
-m_09_16 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t=7)
-
-### Third post-treatment
-ivl <- '2016-2020'
-raw <- read.csv(paste0('../data/Benchmarking_data/Blodgett/mortality_invntry_', ivl, '.csv'))
-m_16_20 <- make_mrtlty_tbl(raw[raw$DBH_BA>=15,], dead_ind = 'Snag', ivl = ivl, t=4)
-
-allmort <- rbind(m_01_03, m_03_09, m_09_16, m_16_20)
 
 ```
 
 ```{r cntrl_mort}
 ggplot(allmort[allmort$Treatment == 'None',],
-       aes(x=calculationInterval, y=annual_mortality, 
-                               ymin=annual_mortality - SE_annual, 
-                               ymax=annual_mortality + SE_annual, 
+       aes(x=calculationInterval, y=prob, 
+                               ymin=prob - SE, 
+                               ymax=prob + SE, 
                                fill=PFT
                                )) + 
   geom_bar(position = 'dodge', stat="identity") +
   geom_errorbar(position = 'dodge') +
     # scale_fill_manual(values=unlist(pft_cols), name='PFT') +
     xlab("Timeframe") +
-    ylab("Mortality rate (annual per capita)") + 
+    ylab("Control mortality over timeframe") + 
     # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
   # Styling
     theme_minimal(base_size = 14) +
@@ -1229,60 +1561,7 @@ print(mort_means_trt)
 ```
 
 
-### Mortality visualizations
-```{r size_time}
 
-
-mort_time_plot <- ggplot(mort_means_trt[mort_means_trt$PFT_simple %in% c('cedar', 'fir', 'pine', 'oak'),],
-                           aes(x=Timeframe, y=Mortality_pct_yr, 
-                               ymin=Mortality_pct_yr - SE_trt_pct, 
-                               ymax=Mortality_pct_yr + SE_trt_pct, 
-                               fill=PFT_simple
-                               )) + 
-  geom_bar(position = 'dodge', stat="identity") +
-  geom_errorbar(position = 'dodge') +
-    # scale_fill_manual(values=unlist(pft_cols), name='PFT') +
-    xlab("Timeframe") +
-    ylab("Mortality rate (annual per capita)") + 
-    # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
-  # Styling
-    theme_minimal(base_size = 14) +
-    theme(axis.line = element_line(color='black'), 
-          panel.grid.minor = element_blank(),
-          # panel.grid.major = element_blank(),
-          axis.text.x = element_text(angle=45, hjust = 1))
-    
-mort_time_plot <- mort_time_plot+facet_wrap(~Treatment, ncol=2, scales = 'free_y')
-
-# for(year in unique(size_means_trt$Year)){
-#   p <- make_size_timeseries(size_means_trt[size_means_trt$Year == year,]) + ggtitle(year)
-#   print(p)
-#   }
-print(mort_time_plot)
-
-```
-
-```{r mort_cntrl_diffs}
-## Visualize % difference in Control size distribution over time, relative to first year
-mort_cntl_diffs <- ggplot(mort_means_cntrl[mort_means_cntrl$Timeframe != ref_year,],
-              aes(x=Timeframe, y=percent_diff, ymin=percent_diff - se_percent_diff, 
-                  ymax=percent_diff + se_percent_diff)) + 
-  
-  # black line is 0
-  geom_hline(yintercept = 0, lty = 3) + 
-  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
-  xlab("Year") +
-  ylab("% difference from reference year mortality") + 
-# Styling
-  theme_minimal(base_size = 14) +
-  theme(axis.line = element_line(color='black'), 
-        panel.grid.minor = element_blank(),
-        panel.grid.major = element_blank(),
-        axis.text.x = element_text(angle=45, hjust = 1))
-  
-print(mort_cntl_diffs + facet_wrap(~PFT_simple, 
-                                   ncol = 2, scales = 'free_y'))
-```
 
 ```{r mort_trt_diffs}
 ## Visualize $ difference in Treated vs Control basal area over time
@@ -1296,7 +1575,7 @@ mort_trt_diffs <- ggplot(mort_means_trt[mort_means_trt$Treatment!='None',],
   geom_point(position = position_dodge(dodge)) + geom_errorbar(position = position_dodge(dodge)) +
   scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
   xlab("Year") +
-  ylab("% difference from Control Mortality") + 
+  ylab("Difference from Control Mortality") + 
 # Styling
   theme_minimal(base_size = 14) +
   theme(axis.line = element_line(color='black'), 
