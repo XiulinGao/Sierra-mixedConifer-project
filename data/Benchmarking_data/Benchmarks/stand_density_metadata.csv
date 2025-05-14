@@ -1,10 +1,18 @@
 ﻿variable,description,variable type,unit
 Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control = control.,string,NA
-Stems_per_ha,Average stem density of trees with DBH >= 15cm in treated units during the final year of measurement.,float,stems/ha
-SE_Stems_per_ha,Standard error of average stem density  in the final year of measurement.,float,m2/ha
-Final_yr_pct_diff,Average percent difference between treatment unit and control unit stem density in the final year of measurement.,float,%
-SE_final_yr,Standard error of average percent difference between treatment and control in the final year of measurement.,float,%
+Fnl,Average stem density of trees with DBH >= 15cm during the final year of measurement.,float,stems/ha
+SE_Fnl,Standard error of average stem density in the final year of measurement.,float,stems/ha
+Fnl_lower.CL,Lower bound of 95% confidence interval of average stem density in the final year of measurement.,float,stems/ha
+Fnl_upper.CL,Upper bound of 95% confidence interval of average stem density in the final year of measurement.,float,stems/ha
+Fnl_pct_diff,Average percent difference between treatment unit and control unit stem density in the final year of measurement.,float,%
+SE_Fnl_pct_diff,Standard error of average percent difference between treatment and control in the final year of measurement.,float,%
+Avg,"Average stem density of trees with DBH >= 15cm over the entire post-treatment time period. This is a weighted average, in which the mean stem density during each measurement interval is weighted by the number of years in the measurement interval.",float,stems/ha
+SE_Avg,Standard error of average stem density over the entire post-treatment measurement period.,float,stems/ha
+Avg_lower.CL,Lower bound of 95% confidence interval of average stem density over the entire post-treatment measurement period.,float,stems/ha
+Avg_upper.CL,Upper bound of 95% confidence interval of average stem density over the entire post-treatment measurement period.,float,stems/ha
+Avg_pct_diff,"Average percent difference between treatment unit and control unit stem density across all post-treatment measurements. This is a weighted average, in which differences during each measurement interval are weighted by the number of years in the measurement interval.
+NB: For Blodgett and STEF, this value is calculated as the weighted average of the differences across measurement periods. For Teakettle, it should be the difference of the weighted average calculated over the post-treatment study period.",float,%
+SE_Avg_pct_diff,Standard error of average percent difference between treatment and control across all post-treatment measurements.,float,%
+Start_yr,First measurement year after first entry treatment,Integer,NA
 End_yr,Final year of measurement,Integer,NA
-Time_wghtd_avg,"Average percent difference between treatment unit and control unit stem density across all post-treatment measurements. This is a weighted average, in which differences during each measurement interval are weighted by the number of years in the measurement interval.",float,%
-SE_time_wghtd_avg,Standard error of average percent difference between treatment and control across all post-treatment measurements.,float,%
-Year_range,Range of years over which time-weighted average values are calculated,string,NA
+Year_range,Range of years over which time-weighted average values are calculated.,string,NA
