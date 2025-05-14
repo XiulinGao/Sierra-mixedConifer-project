@@ -1888,6 +1888,45 @@ write.csv(out_pre_post, file.path(paste0('../data/Benchmarking_data/Benchmarks/f
 
 ```
 
+```{r stef_fuels}
+
+fuel_by_trt <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'fuel_by_trt.csv'))
+
+## Add a fuel class for the sum of 1, 10, 100hr fuels 
+fuel_by_trt <- fuel_by_trt[fuel_by_trt$Fuel_class %in% c('1-hr', '10-hr', '100-hr'),] %>%
+  group_by(Treatment, Year) %>%
+  summarise(
+    Mg_ha = sum(Mg_ha)
+  ) %>%
+  bind_rows(fuel_by_trt, .)
+
+fuel_by_trt[is.na(fuel_by_trt$Fuel_class), 'Fuel_class'] = 'Total_1_10_100_hr_fuels'
+
+fuel_means_trt <- data.frame()
+
+for(fuel in unique(fuel_by_trt$Fuel_class)){
+    # Get means and contrasts for fuel class
+    fuel_outs <- calculate_pct_diff(fuel_by_trt[fuel_by_trt$Fuel_class==fuel,], 
+                                    compare_column = 'Treatment', 
+                                    ref = 'None', 
+                                    out_col = 'Mg_ha')
+    # Add a Fuel column
+    fuel_outs$Fuel_class <- fuel
+
+    # Bind to previous years
+    fuel_means_trt <- rbind(fuel_means_trt, fuel_outs)
+}
+
+
+print(fuel_means_trt)
+
+write.csv(fuel_means_trt, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_cntrlTreat_', site, '.csv')), row.names=FALSE)
+
+
+
+
+```
+
 
 ```{r cntrl_fuel}
 
