@@ -1810,6 +1810,85 @@ write.csv(mort_means_trt, file.path(paste0('../data/Benchmarking_data/Benchmarks
 
 
 ## Benchmark 5: Fuels
+Teakettle fuel data were digitized from this publication: https://www.fs.usda.gov/psw/publications/north/psw_2009_north006.pdf. 
+
+```{r tk_fuels}
+fuel_by_trt <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'fuel_by_trt_digitized.csv'))
+
+## Add a fuel class for the sum of 1, 10, 100hr fuels 
+fuel_by_trt <- fuel_by_trt[fuel_by_trt$Fuel_class!='1000-hr',] %>%
+  group_by(Treatment, Timeframe, Year) %>%
+  summarise(
+    Mg_ha = sum(Mg_ha)
+  ) %>%
+  bind_rows(fuel_by_trt, .)
+
+fuel_by_trt[is.na(fuel_by_trt$Fuel_class), 'Fuel_class'] = 'Total_1_10_100_hr_fuels'
+
+## Initialize dataframes to append yearly results to
+fuel_means_trt <- data.frame()
+
+for(fuel in unique(fuel_by_trt$Fuel_class)){
+    # Get means and contrasts for fuel class
+    fuel_outs <- make_emm_df(fuel_by_trt[fuel_by_trt$Fuel_class==fuel & 
+                                           fuel_by_trt$Year %in% c(2002, 2003),],
+                           compare_column = 'Treatment',
+                           var = 'Mg_ha', 
+                           ref = 'None')
+    # Add a Fuel column
+    fuel_outs$Fuel_class <- fuel
+    
+    # Add a Year column
+    fuel_outs$Year <- year
+
+    # Bind to previous years
+    fuel_means_trt <- rbind(fuel_means_trt, fuel_outs)
+}
+
+
+print(fuel_means_trt)
+
+out <- fuel_means_trt[, c('Treatment', 'emmean', 'percent_diff', 'Fuel_class', 'Year')]
+colnames(out) <- c('Treatment', 'Fuel_biomass', 'Cntrl_pct_diff', 'Fuel_class', 'Year')
+
+write.csv(out, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_cntrlTreat_', site, '.csv')), row.names=FALSE)
+
+
+```
+
+```{r tk_fuels_pre_post}
+fuel_pre_post <- data.frame()
+
+for(fuel in unique(fuel_by_trt$Fuel_class)){
+  for(trt in c('Burn', 'Thin', 'Burn+Thin')){
+      # Get means and contrasts for fuel class
+      fuel_outs <- make_emm_df(fuel_by_trt[fuel_by_trt$Fuel_class==fuel & 
+                                             fuel_by_trt$Treatment==trt,],
+                             compare_column = 'Timeframe',
+                             var = 'Mg_ha', 
+                             ref = 'Pre')
+      # Add a Fuel column
+      fuel_outs$Fuel_class <- fuel
+      
+      # Add a treatment column
+      fuel_outs$Treatment <- trt
+  
+      # Bind to previous years
+      fuel_pre_post <- rbind(fuel_pre_post, fuel_outs)
+}
+
+}
+print(fuel_pre_post)
+
+out_pre_post <- fuel_pre_post[fuel_pre_post$Timeframe=='Post', 
+                              c('Treatment', 'emmean', 'percent_diff', 'Fuel_class')]
+colnames(out_pre_post) <- c('Treatment', 'Fuel_biomass', 'PrePost_pct_diff', 'Fuel_class')
+
+write.csv(out_pre_post, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_prePost_', site, '.csv')), row.names=FALSE)
+
+```
+
+
 ```{r cntrl_fuel}
 
 fuel_by_unit <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'fuel_by_unit_year.csv'))
