@@ -1544,6 +1544,7 @@ for(y in 2:length(invntry_dates[[site]])){
   fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
                ivl, '.csv')
   raw <- read.csv(fn)
+  raw15 <- read.csv('../data/Benchmarking_data/Teakettle/mortality_invntry_DBH_Pre-DBH_Post.csv')
   
   raw_mort[[y-1]] = raw
 }
@@ -1557,7 +1558,7 @@ raw15$Dead <- ifelse(raw15[[status_col]]==dead_ind, 1, 0)
 ## Treatment as factor, reference level is the control
 raw15$Treatment <- factor(raw15$Treatment, levels = c('None', 'Burn', 'Thin', 'Burn+Thin'))
 
-surv_df <- raw15[!is.na(raw15$start_year),] %>%
+surv_df <- raw15 %>%
   group_by(get(treeid)) %>%
   arrange(get(year_col)) %>%
   summarise(
@@ -1565,7 +1566,7 @@ surv_df <- raw15[!is.na(raw15$start_year),] %>%
     exit = if (any(get(status_col) == dead_ind)) min(get(year_col)[get(status_col) == dead_ind]) else max(get(year_col)),
     status = as.integer(any(get(status_col) == dead_ind)),
     PFT = first(PFT_simple),
-    plot_id = first(get(plotid)),
+    # plot_id = first(get(plotid)),
     unit_id = first(get(unitid)),
     treatment = first(Treatment)
   )
@@ -1602,6 +1603,12 @@ coxme_model <- coxme(
 allmort <- data.frame()
 
 if(site!='Teakettle'){
+  status_col = 'Status'
+    dead_ind = 2
+    rndm_fx = 'Plot'
+    treeid = 'TreeID_clean'
+    unitid = 'Plot'
+    year_col = 'end_year'
   if(site=='Blodgett'){
     status_col = 'status'
     dead_ind = 'Snag'
@@ -1839,7 +1846,7 @@ for(fuel in unique(fuel_by_trt$Fuel_class)){
     fuel_outs$Fuel_class <- fuel
     
     # Add a Year column
-    fuel_outs$Year <- year
+    fuel_outs$Year <- 2003
 
     # Bind to previous years
     fuel_means_trt <- rbind(fuel_means_trt, fuel_outs)
@@ -1848,10 +1855,10 @@ for(fuel in unique(fuel_by_trt$Fuel_class)){
 
 print(fuel_means_trt)
 
-out <- fuel_means_trt[, c('Treatment', 'emmean', 'percent_diff', 'Fuel_class', 'Year')]
-colnames(out) <- c('Treatment', 'Fuel_biomass', 'Cntrl_pct_diff', 'Fuel_class', 'Year')
+out <- fuel_means_trt[, c('Treatment', 'Fuel_class', 'Year', 'emmean', 'percent_diff')]
+colnames(out) <- c('Treatment', 'Fuel_class', 'Year', 'Fuel_biomass', 'percent_diff' )
 
-write.csv(out, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_cntrlTreat_', site, '.csv')), row.names=FALSE)
+write.csv(out, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_', site, '.csv')), row.names=FALSE)
 
 
 ```
@@ -1881,13 +1888,15 @@ for(fuel in unique(fuel_by_trt$Fuel_class)){
 print(fuel_pre_post)
 
 out_pre_post <- fuel_pre_post[fuel_pre_post$Timeframe=='Post', 
-                              c('Treatment', 'emmean', 'percent_diff', 'Fuel_class')]
-colnames(out_pre_post) <- c('Treatment', 'Fuel_biomass', 'PrePost_pct_diff', 'Fuel_class')
+                              c('Treatment', 'Fuel_class', 'emmean', 'percent_diff')]
+colnames(out_pre_post) <- c('Treatment', 'Fuel_class', 'Fuel_load', 'PrePost_pct_diff')
 
 write.csv(out_pre_post, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_prePost_', site, '.csv')), row.names=FALSE)
 
 ```
 
+
+Fuel differences at STEF are quoted in this publication: https://www.sciencedirect.com/science/article/pii/S0378112717309684#s0100. 
 ```{r stef_fuels}
 
 fuel_by_trt <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'fuel_by_trt.csv'))
@@ -1920,7 +1929,10 @@ for(fuel in unique(fuel_by_trt$Fuel_class)){
 
 print(fuel_means_trt)
 
-write.csv(fuel_means_trt, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_cntrlTreat_', site, '.csv')), row.names=FALSE)
+out <- fuel_means_trt[, c('Treatment', 'Fuel_class', 'Year', 'Mg_ha', 'SE', 'percent_diff', 'se_percent_diff')]
+colnames(out) <- c('Treatment', 'Fuel_class', 'Year', 'Fuel_load', 'SE', 'percent_diff', 'se_percent_diff')
+
+write.csv(out, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_', site, '.csv')), row.names=FALSE)
 
 
 

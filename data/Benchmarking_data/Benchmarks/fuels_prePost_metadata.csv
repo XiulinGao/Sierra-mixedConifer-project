@@ -1,0 +1,5 @@
+﻿variable,description,variable type,unit
+Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control = control.,string,NA
+Fuel_class,Fuel classification.,string,NA
+Fuel_load,Average fuel load post-treatment (approximately 2003),float,Mg/ha
+percent_diff,Percent difference between fuel load one year pre- to one year post-treatment (approximately 2000-2003),float,%
