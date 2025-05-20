@@ -7,38 +7,52 @@ output: html_document
 
 ```{r setup, include=FALSE}
 home_path   = path.expand("~")
-main_path   = file.path("/Volumes/Ldian/FATES/sites3-resprt-exp/across-sites-comp")
+main_path   = file.path("/Volumes/Ldian/FATES/3sites-fuel-treatment_0507/3sites-comparison")
 util_path   = file.path(home_path,"Util/RUtils")
-hlm_files   = c("treatment-bldgt_hlm1d.csv",
-                "treatment-tea_hlm1d.csv",
-                "treatment-stef_hlm1d.csv")
+hlm_files   = c("blodgett-treatment_hlm1d.csv",
+                "stef-treatment_hlm1d.csv",
+                "teakettle-treatment_hlm1d.csv")
 hlm_paths   = file.path(main_path,hlm_files)
-pft_files  = c("treatment-bldgt_bypft-dbh15.csv",
-               "treatment-tea_bypft-dbh15.csv",
-               "treatment-stef_bypft-dbh15.csv")
+
+pft_files  = c("blodgett-treatment_bypft-dbh15.csv",
+               "stef-treatment_bypft-dbh15.csv",
+               "teakettle-treatment_bypft-dbh15.csv")
 pft_paths   = file.path(main_path,pft_files)
-dbh_files  = c("treatment-bldgt_bydbh.csv",
-               "treatment-tea_bydbh.csv",
-               "treatment-stef_bydbh.csv")
+
+ddbh_pft_files = c("blodgett-treatment_bypft-dbh10.csv",
+                   "stef-treatment_bypft-dbh10.csv",
+                   "teakettle-treatment_bypft-dbh5.csv")
+ddbh_paths = file.path(main_path,ddbh_pft_files)
+
+
+dbh_files  = c("blodgett-treatment_bydbh.csv",
+               "stef-treatment_bydbh.csv",
+               "stef-tuned_bydbh.csv")
 dbh_paths   = file.path(main_path,dbh_files)
-fuel_files = c("treatment-bldgt_byfuel.csv",
-               "treatment-tea_byfuel.csv",
-               "treatment-stef_byfuel.csv")
+fuel_files = c("blodgett-treatment_byfuel.csv",
+               "stef-treatment_byfuel.csv",
+               "teakettle-treatment_byfuel.csv")
 fuel_paths   = file.path(main_path,fuel_files)
+
+ddbh_szpf_files = c("blodgett-treatment_ddbh_szpf.csv",
+                    "stef-treatment_ddbh_szpf.csv",
+                    "teakettle-treatment_ddbh_szpf.csv")
+ddbh_szpf_paths = file.path(main_path,ddbh_szpf_files)
+
 nsites = length(fuel_paths)
 
 case_desc = c("Blodgett-Control",
-              "Blodgett-75-50-20-BA40",
-              "Blodgett-Rx-InclusiveBW",
-              "Blodgett-Rx-SelectiveBW",
-              "Teakettle-Control",
-              "Teakettle-45-90-100-BA40",
-              "Teakettle-Rx-InclusiveBW",
-              "Teakettle-Rx-SelectiveBW",
+              "Blodgett-Thin",
+              "Blodgett-Burn-Cool",
+              "Blodgett-Burn-Hot",
               "STEF-Control",
-              "STEF-75-50-20-BA49p5",
-              "STEF-Rx-InclusiveBW",
-              "STEF-Rx-SelectiveBW")
+              "STEF-Thin",
+              "STEF-Burn-Cool",
+              "STEF-Burn-Hot",
+              "Teakettle-Control",
+              "Teakettle-Thin",
+              "Teakettle-Burn-Cool",
+              "Teakettle-Burn-Hot")
 names(case_desc) = c("1","2","3","4","5","6","7","8","9","10","11","12")
 ncase = length(case_desc)/nsites
 
@@ -46,6 +60,37 @@ ncase = length(case_desc)/nsites
 
 
 
+
+
+```{r ObservationData}
+
+obs_main = file.path("Sierra-mixedConifer-project/data/Benchmarking_data/Benchmarks")
+obs_path = file.path(home_path,obs_main)
+ba_obs = c("basal_area_Blodgett.csv",
+             "basal_area_STEF.csv")
+nplant_obs = c("stand_density_Blodgett.csv",
+                 "stand_density_STEF.csv")
+ctrl_growth_obs = c("growth_by_size_pft_Blodgett.csv",
+                    "growth_by_size_pft_STEF.csv")
+delta_growth_obs = c("growth_effects_Blodgett.csv",
+                 "growth_effects_STEF.csv")
+mort_obs = c("mortality_Blodgett.csv",
+               "mortality_STEF.csv")
+sz_obs = c("size_dist_Blodgett.csv",
+             "size_dist_STEF.csv")
+fuel_obs = c("fuels_Blodgett.csv")
+
+ba_path = file.path(obs_path,ba_obs)
+nplant_path = file.path(obs_path,nplant_obs)
+delta_growth_path = file.path(obs_path,delta_growth_obs)
+ctrl_growth_path  = file.path(obs_path,ctrl_growth_obs)
+mort_path = file.path(obs_path,mort_obs)
+sz_path = file.path(obs_path,sz_obs)
+fuel_path = file.path(obs_path,fuel_obs)
+
+
+
+```
 
 
 
@@ -71,6 +116,8 @@ dummy = dir.create(mean_path   , recursive = TRUE, showWarnings = FALSE)
 library(ggplot2)
 library(tidyverse)
 library(lubridate)
+library(data.table)
+library(patchwork)
 
 
 ```
@@ -265,18 +312,19 @@ ReadAppend_fun = function(path,n_site,n_case,case_desc){
    if(is.null(return_df)){
      return_df = df_now
    }else{
-     return_df = rbind(return_df,df_now)
+     return_df = rbind(return_df,df_now,fill=TRUE)
    }
   }
   return(return_df)
   
 }
-all_paths = c("hlm_paths","pft_paths","dbh_paths","fuel_paths")
-file_name = c("hlm1d-3sites.csv","bypft-3sites.csv","bydbh-3sites.csv","byfuel-3sites.csv")
-n_path = length(all_paths)
+all_model_paths = c("hlm_paths","pft_paths","ddbh_paths","dbh_paths","fuel_paths","ddbh_szpf_paths")
+model_file_name = c("hlm1d-3sites.csv","bypft-3sites.csv","ddbh-3sites.csv","bydbh-3sites.csv","byfuel-3sites.csv",
+                    "ddbh-byszpf-3sites.csv")
+n_path = length(all_model_paths)
 for(p in sequence(n_path)){
-  p_now = get(all_paths[p])
-  f_now = file_name[p]
+  p_now = get(all_model_paths[p])
+  f_now = model_file_name[p]
   df_now = ReadAppend_fun(p_now,nsites,ncase,case_desc)
   data.table::fwrite(df_now,file=file.path(main_path,f_now))
 }
@@ -286,6 +334,7 @@ for(p in sequence(n_path)){
 
 
 ```
+
 
 
 
@@ -311,6 +360,7 @@ delta_pct_fun = function(df,x,quant_up,quant_lw){
   df[[x]] = ifelse(df[[x]] > up_thresh | df[[x]] < lw_thresh, NA, df[[x]])
 }
 
+
 delta_fun = function(df,x){
   ctrl_name = rename_fun(x)
   df[[x]] = df[[x]] - df[[ctrl_name]]
@@ -321,9 +371,9 @@ site_grab = function(desc){
 }
 
 treatment_grab = function(desc){
-  if(grepl("[0-9]+-BA[0-9]+",desc)){treat = "Logging"}
-  else if(grepl("Rx-Inclusive",desc)){treat="Rx-Inclusive"}
-  else if(grepl("Rx-Selective",desc)){treat="Rx-Selective"}
+  if(grepl("[0-9]+-BA[0-9]+",desc)){treat = "Thin"}
+  else if(grepl("Rx-Inclusive",desc)){treat="Burn-Cool"}
+  else if(grepl("Rx-Selective",desc)){treat="Burn-Hot"}
   else{treat = "None"}
  # treat = if_else(grepl("[0-9]+-BA",desc),"Logging","Rx-fire")
 }
@@ -334,6 +384,24 @@ find_mort = function(x,n){
    return(mort_year)
 }#end function find_mort
 
+rename_sd = function(x){
+   x = gsub(pattern="fates_",replacement = "sd_",x)
+}
+
+CI95_error = function(n, mean, sd) {
+  se = sd/sqrt(n)
+  df = n - 1
+  alpha = 0.05
+  t_score = qt(alpha/2,df=df,lower.tail = FALSE)
+  margin_error = t_score * se
+}
+
+zero_to_na = function(x){
+  x=ifelse(x==0,NA,x)
+}
+
+
+
 ```
 
 
@@ -342,7 +410,7 @@ find_mort = function(x,n){
 
 ```{r ByPFTDataProcessing}
 
-bypft = data.table::fread(file.path(main_path,file_name[2]))
+bypft = data.table::fread(file.path(main_path,model_file_name[2]))
 bypft = bypft                    %>% 
         dplyr::select(-c(fates_mortality_cambialburn,
                  fates_mortality_crownscorch,
@@ -359,26 +427,9 @@ bypft  =     bypft                                              %>%
                                                    .data$fates_nplant)))
 bypft$fates_mortality = bypft %>% dplyr::select(starts_with("fates_mortality")) %>% rowSums()
 
-## method 1: including growth rate of plants died,
-## which will be zero, into the calculation of 
-## average growth rate; also calculate annual mean
-## first
 
-bypft_zero = bypft                                                                     %>% 
-  mutate(fates_ddbh_canopy = ifelse(fates_nplant_canopy==0,    
-                                    fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,fates_ddbh_canopy*ha_2_m2),
-         fates_ddbh_ustory = ifelse(fates_nplant_ustory==0,
-                                    fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,fates_ddbh_ustory*ha_2_m2),
-         fates_ddbh        = ifelse(fates_nplant==0, 
-                                    fates_ddbh*ha_2_m2*fates_nplant,fates_ddbh*ha_2_m2))
 
-bypft_zero = bypft_zero                       %>% 
-             dplyr::select(-c(time,month))    %>% 
-             group_by(case,desc,year,pft)     %>% 
-             summarize_all(mean,na.tm=TRUE)   %>% 
-             ungroup()
-
-## method 2: excluding growth rate of plants died
+## excluding growth rate of plants died
 ## in the calculation of averaged growth rate
 ## by setting its growth rate to N/A
 
@@ -398,17 +449,16 @@ bypft_na = bypft_na                         %>%
            group_by(case,desc,year,pft)     %>%
            summarize_all(mean,na.tm=TRUE)   %>%
            ungroup()
-   
-pft_df = bypft_na
+  
 
-ddbh_vars = names(pft_df)[grepl("ddbh",names(pft_df))]
+ddbh_vars = names(bypft_na)[grepl("ddbh",names(bypft_na))]
 n_ddbh = length(ddbh_vars)
 for(v in sequence(n_ddbh)){
   var_now = ddbh_vars[v]
-  pft_df[[var_now]] = ddbh_scale_fun(pft_df,var_now)
+  bypft_na[[var_now]] = ddbh_scale_fun(bypft_na,var_now)
 }
 
-ctrl = pft_df %>% filter(case %in% c(1,5,9))
+ctrl = bypft_na %>% filter(case %in% c(1,5,9))
 ctrl = ctrl                    %>% 
        group_by(case,desc)     %>% 
        slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
@@ -435,7 +485,7 @@ ctrl_bypft =  ctrl                       %>%
               dplyr::select(all_of(delta_vars)) %>% 
               rename_at(vars(fates_nplant:fates_mortality),rename_fun)
 
-treat_bypft = pft_df                                   %>% 
+treat_bypft = bypft_na                                  %>% 
               filter(!case%in% c(1,5,9))             
 
 treat_bypft = treat_bypft %>% dplyr::select(all_of(c("case",
@@ -446,12 +496,7 @@ treat_bypft = treat_bypft %>% dplyr::select(all_of(c("case",
     
 
 delta_bypft = cbind(treat_bypft,ctrl_bypft)
-#delta_bypft = delta_bypft                    %>% 
-#              mutate(year=year(time))        %>% 
-#              select(-time)                  %>% 
-#              group_by(case,desc,year,pft)   %>% 
-#              summarize_all(mean,na.rm=TRUE) %>% 
-#              ungroup()
+
 delta_bypft = delta_bypft                    %>% 
               mutate(site=site_grab(desc))
 delta_bypft$treatment = unlist(lapply(delta_bypft$desc,treatment_grab))
@@ -463,6 +508,10 @@ for(v in sequence(n_delta)){
 }
 
 treated_case = unique(delta_bypft$case)
+delta_bypft = delta_bypft                                              %>% 
+              mutate_at(vars(fates_nplant:fates_mortality),zero_to_na) %>% 
+              filter(!is.na(fates_nplant))
+
 
 #rx_date  =  bypft                                 %>% 
 #            filter(fates_mortality_rxfire>0)      %>% 
@@ -481,6 +530,7 @@ treated_case = unique(delta_bypft$case)
 
 deltabypft_mean = NULL
 deltabypft_sd   = NULL
+deltabypft_se   = NULL
 
 for(n in treated_case){
   delta_now = delta_bypft %>% filter(case==n)
@@ -505,6 +555,12 @@ for(n in treated_case){
                group_by(site,treatment,pft)                              %>% 
                summarize_all(sd,na.rm=TRUE)
      deltabypft_sd = rbind(deltabypft_sd,sd_pft)
+     
+     se_pft = delta_now                    %>% 
+              select(-c(year,case,desc))   %>% 
+              group_by(site,treatment,pft) %>% 
+              summarize_all(funs(se=sd(.)/sqrt(n())))
+     deltabypft_se = rbind(deltabypft_se,se_pft)
     
      
 }
@@ -512,6 +568,7 @@ for(n in treated_case){
 
 
 ```
+
 
 
 
@@ -526,12 +583,13 @@ names(f_pftlabs) = c("1","2","3","4")
 
 for(d in sequence(n_delta)){
   f_vnam = delta_vars[d]
+  se_nam = paste0(f_vnam,"_se")
   f_desc = delta_desc[d]
   plot = ggplot(plot_df,aes_string(x = "site",y=f_vnam,
-                   ymin=plot_df[[f_vnam]]-deltabypft_sd[[f_vnam]],
-                   ymax=plot_df[[f_vnam]]+deltabypft_sd[[f_vnam]],
+                   ymin=plot_df[[f_vnam]]-deltabypft_se[[se_nam]],
+                   ymax=plot_df[[f_vnam]]+deltabypft_se[[se_nam]],
                    colour="treatment")) +
-       facet_wrap(.~pft,labeller=labeller(pft=f_pftlabs))+
+       facet_wrap(.~pft,labeller=labeller(pft=f_pftlabs),scales="free_x")+
        geom_point(size=2) +
        geom_errorbar(width=0)+
        geom_hline(yintercept = 0, color="black",linetype=2)+
@@ -553,13 +611,13 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_PFTSplit-smoothed-15-NA.",gg_device[d])
+    f_output = paste0(f_vnam,"_PFTSplit-15-SE-NA.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
                     , path     = pft_path
                     , width    = gg_widthn*0.5
-                    , height   = gg_height*0.5
+                    , height   = gg_height*0.6
                     , units    = gg_units
                     , dpi      = gg_depth
                     )
@@ -576,7 +634,7 @@ for(d in sequence(n_delta)){
 
 ```{r OverallEffectDataProcessing}
 
-overall = data.table::fread(file.path(main_path,file_name[2]))
+overall = data.table::fread(file.path(main_path,model_file_name[2]))
 overall = overall                        %>% 
           group_by(case,desc,time)       %>% 
           dplyr::select(-pft)            %>% 
@@ -600,19 +658,6 @@ overall = overall                                 %>%
 overall$fates_mortality = overall %>% dplyr::select(starts_with("fates_mortality")) %>% rowSums()
 
 
-overall_zero = overall                         %>% 
- mutate(fates_ddbh_canopy = ifelse(fates_nplant_canopy==0,    
-                                    fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,fates_ddbh_canopy*ha_2_m2),
-        fates_ddbh_ustory = ifelse(fates_nplant_ustory==0,
-                                    fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,fates_ddbh_ustory*ha_2_m2),
-        fates_ddbh        = ifelse(fates_nplant==0, 
-                                    fates_ddbh*ha_2_m2*fates_nplant,fates_ddbh*ha_2_m2))
-
-overall_zero = overall_zero              %>% 
-          group_by(case,desc,year)       %>% 
-          dplyr::select(-c(time,month))  %>% 
-          summarize_all(mean,na.rm=TRUE) %>% 
-          ungroup()
 
 overall_na  = overall                    %>% 
   mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
@@ -630,17 +675,16 @@ overall_na  = overall_na                     %>%
               dplyr::select(-c(time,month))  %>% 
               summarize_all(mean,na.rm=TRUE) %>% 
               ungroup()
-  
- overall_df = overall_na 
 
-ddbh_vars = names(overall_df)[grepl("ddbh",names(overall_df))]
+
+ddbh_vars = names(overall_na)[grepl("ddbh",names(overall_na))]
 n_ddbh = length(ddbh_vars)
 for(v in sequence(n_ddbh)){
   var_now = ddbh_vars[v]
-  overall_df[[var_now]] = ddbh_scale_fun(overall_df,var_now)
+  overall_na[[var_now]] = ddbh_scale_fun(overall_na,var_now)
 }
 
-ctrl_all = overall_df %>% filter(case %in% c(1,5,9))
+ctrl_all = overall_na %>% filter(case %in% c(1,5,9))
 ctrl_all = ctrl_all                %>% 
            group_by(case,desc)     %>% 
            slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
@@ -649,7 +693,7 @@ ctrl_all =  ctrl_all                              %>%
             dplyr::select(all_of(delta_vars))     %>% 
             rename_at(vars(fates_nplant:fates_mortality),rename_fun)
 
-treat_all = overall_df                            %>% 
+treat_all = overall_na                            %>% 
             filter(!case%in% c(1,5,9))             
 
 treat_all = treat_all %>% dplyr::select(all_of(c("case",
@@ -669,8 +713,13 @@ for(v in sequence(n_delta)){
   delta_treat[[var_now]] = delta_pct_fun(delta_treat,var_now,1,0)
 }
 
+delta_treat = delta_treat                           %>% 
+              mutate_at(vars(fates_nplant:fates_mortality),
+                         zero_to_na)                %>% 
+              filter(!is.na(fates_nplant))
 delta_mean = NULL
 delta_sd   = NULL
+delta_se   = NULL
 
 for(n in treated_case){
   delta_now = delta_treat %>% filter(case==n)
@@ -687,6 +736,14 @@ for(n in treated_case){
                summarize_all(sd,na.rm=TRUE)
     delta_sd = rbind(delta_sd,sd_now)
     
+    se_now  = delta_now                       %>% 
+              select(-c(year,case,desc))      %>% 
+              group_by(site,treatment)        %>% 
+              summarize_all(funs(se=sd(.)/sqrt(n())))
+    delta_se = rbind(delta_se,se_now)
+    
+    
+    
      
 }
 
@@ -700,6 +757,8 @@ for(n in treated_case){
 
 
 
+
+
 ```{r PlotDeltaByTreatment, echo=FALSE}
 
 
@@ -707,10 +766,11 @@ plot_df = delta_mean
 
 for(d in sequence(n_delta)){
   f_vnam = delta_vars[d]
+  se_nam = paste0(f_vnam,"_se")
   f_desc = delta_desc[d]
   plot = ggplot(plot_df,aes_string(x = "site",y=f_vnam,
-                   ymin=plot_df[[f_vnam]]-delta_sd[[f_vnam]],
-                   ymax=plot_df[[f_vnam]]+delta_sd[[f_vnam]],
+                   ymin=plot_df[[f_vnam]]-delta_se[[se_nam]],
+                   ymax=plot_df[[f_vnam]]+delta_se[[se_nam]],
                    colour="treatment")) +
        geom_point(size=2) +
        geom_errorbar(width=0)+
@@ -732,7 +792,7 @@ for(d in sequence(n_delta)){
   
   
   for (d in sequence(ndevice)){
-    f_output = paste0(f_vnam,"_byTreatment-smoothed-15-NA.",gg_device[d])
+    f_output = paste0(f_vnam,"_byTreatment-SE-NA.",gg_device[d])
     dummy    = ggsave( filename = f_output
                     , plot     = plot
                     , device   = gg_device[d]
@@ -758,23 +818,7 @@ for(d in sequence(n_delta)){
 
 ```{r DeltaGrowthByDBHDataProcessing}
 
-bydbh = data.table::fread(file.path(main_path,file_name[3]))
-
-
-bydbh_zero = bydbh                          %>% 
-mutate(fates_ddbh_canopy = ifelse(fates_nplant_canopy==0,    
-                                  fates_ddbh_canopy*ha_2_m2*fates_nplant_canopy,fates_ddbh_canopy*ha_2_m2),
-        fates_ddbh_ustory = ifelse(fates_nplant_ustory==0,
-                                   fates_ddbh_ustory*ha_2_m2*fates_nplant_ustory,fates_ddbh_ustory*ha_2_m2),
-        fates_ddbh        = ifelse(fates_nplant==0, 
-                                   fates_ddbh*ha_2_m2*fates_nplant,fates_ddbh*ha_2_m2))
-
-bydbh_zero = bydbh_zero                %>% 
-        mutate(year = year(time))      %>% 
-        group_by(case,desc,year,dbh)   %>% 
-        select(-time)                  %>% 
-        summarize_all(mean,na.rm=TRUE) %>% 
-        ungroup()
+bydbh = data.table::fread(file.path(main_path,model_file_name[4]))
 
 bydbh_na = bydbh                                          %>% 
            mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
@@ -794,16 +838,15 @@ bydbh_na = bydbh_na                          %>%
            summarize_all(mean,na.rm=TRUE)    %>% 
            ungroup()
 
-bydbh_df = bydbh_zero
-ddbh_vars = names(bydbh_df)[grepl("ddbh",names(bydbh_df))]
+ddbh_vars = names(bydbh_na)[grepl("ddbh",names(bydbh_na))]
 n_ddbh = length(ddbh_vars)
 for(v in sequence(n_ddbh)){
   var_now = ddbh_vars[v]
- bydbh_df[[var_now]] = ddbh_scale_fun(bydbh_df,var_now)
+ bydbh_na[[var_now]] = ddbh_scale_fun(bydbh_na,var_now)
 }
 
 
-ctrl_growth = bydbh_df %>% filter(case %in% c(1,5,9))
+ctrl_growth = bydbh_na %>% filter(case %in% c(1,5,9))
 ctrl_growth = ctrl_growth                    %>% 
               group_by(case,desc)            %>% 
               slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
@@ -824,7 +867,7 @@ ctrl_growth =  ctrl_growth                     %>%
                select(all_of(growth_vars))     %>% 
                rename_at(vars(fates_ddbh:fates_ddbh_ustory),rename_fun)
 
-treat_growth = bydbh_df                                  %>% 
+treat_growth = bydbh_na                                  %>% 
                filter(!case%in% c(1,5,9))             
 
 treat_growth = treat_growth %>% select(all_of(c("case",
@@ -855,8 +898,14 @@ delta_growth = delta_growth                    %>%
 
 delta_growth_12 = delta_growth %>% filter(dbh!=1)
 
+delta_growth_12 = delta_growth_12                  %>% 
+                  mutate_at(vars(fates_ddbh:fates_ddbh_ustory),
+                            zero_to_na)            %>% 
+                  filter(!is.na(fates_ddbh))
+
 deltagrowth_mean = NULL
 deltagrowth_sd   = NULL
+deltagrowth_se   = NULL
 
 for(n in treated_case){
   delta_now = delta_growth_12 %>% filter(case==n)
@@ -873,6 +922,12 @@ for(n in treated_case){
                select(-case)                                             %>% 
                summarize_all(sd,na.rm=TRUE)
   deltagrowth_sd = rbind(deltagrowth_sd,sd_growth)
+  
+  se_growth  = delta_now                                                 %>% 
+               group_by(site,treatment,dbh)                              %>% 
+               select(-case)                                             %>% 
+               summarize_all(funs(se=sd(.)/sqrt(n())))
+  deltagrowth_se = rbind(deltagrowth_se,se_growth)
     
      
 }
@@ -940,10 +995,171 @@ for(d in sequence(n_delta)){
 
 
 
+
+```{r DeltaSizeDistributionProcessing}
+
+sz_model = bydbh                           %>% 
+           select(case,desc,time,dbh,
+                  fates_nplant,
+                  fates_nplant_canopy,
+                  fates_nplant_ustory)     %>% 
+           mutate(fates_nplant = ifelse(fates_nplant==0, NA, fates_nplant),
+                  fates_nplant_canopy = ifelse(fates_nplant_canopy==0, NA, fates_nplant_canopy),
+                  fates_nplant_ustory = ifelse(fates_nplant_ustory==0, NA, fates_nplant_ustory))
+sz_model = sz_model                        %>% 
+           mutate(year=year(time))         %>% 
+           select(-time)                   %>% 
+           group_by(case,desc,year,dbh)    %>% 
+           summarize_all(mean,na.rm=TRUE)  %>% 
+           ungroup()                       %>% 
+           filter(!dbh%in%c(1,2,3))
+
+sz_ctrl = sz_model %>% filter(case %in% c(1,5,9))
+sz_ctrl = sz_ctrl                    %>% 
+          group_by(case,desc)        %>% 
+          slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
+
+delta_szvar = c("fates_nplant",
+               "fates_nplant_ustory",
+               "fates_nplant_canopy")
+sz_desc = c("stem density",
+            "understory stem density",
+            "canopy stem density")
+
+n_delta = length(delta_szvar)
+
+
+sz_ctrl = sz_ctrl                             %>% 
+          dplyr::select(all_of(delta_szvar))     %>% 
+          rename_at(vars(fates_nplant:fates_nplant_canopy),rename_fun)
+
+treat_sz = sz_model                           %>% 
+           filter(!case%in% c(1,5,9))             
+
+treat_sz = treat_sz %>% dplyr::select(all_of(c("case",
+                                               "year",
+                                               "dbh",
+                                               "desc",
+                                              delta_szvar)))
+    
+
+delta_sz = cbind(treat_sz,sz_ctrl)
+
+delta_sz = delta_sz                    %>% 
+           mutate(site=site_grab(desc))
+delta_sz$treatment = unlist(lapply(delta_sz$desc,treatment_grab))
+
+
+for(v in sequence(n_delta)){
+  var_now = delta_szvar[v]
+  delta_sz[[var_now]] = delta_pct_fun(delta_sz,var_now,0.9,0.1)
+}
+
+delta_sz  = delta_sz                        %>% 
+            mutate_at(vars(fates_nplant:fates_nplant_canopy),
+                      zero_to_na)          
+            
+
+treated_case = unique(delta_sz$case)
+
+delta_szdist_mean = NULL
+delta_szdist_sd   = NULL
+delta_szdist_se   = NULL
+
+for(n in treated_case){
+  delta_now = delta_sz %>% filter(case==n)
+
+    mean_sz  = delta_now                                                 %>% 
+               dplyr::select(-c(year,case,desc))                         %>% 
+               group_by(site,treatment,dbh)                              %>% 
+               summarize_all(mean,na.rm=TRUE)
+    
+    delta_szdist_mean = rbind(delta_szdist_mean,mean_sz)
+    
+    sd_sz  = delta_now                                                 %>% 
+             dplyr::select(-c(year,case,desc))                         %>% 
+             group_by(site,treatment,dbh)                              %>% 
+             summarize_all(sd,na.rm=TRUE)
+    delta_szdist_sd = rbind(delta_szdist_sd,sd_sz)
+    
+    se_sz  = delta_now                          %>% 
+             select(-c(year,case,desc))         %>% 
+             group_by(site,treatment,dbh)       %>% 
+             summarize_all(funs(se=sd(.,na.rm=TRUE)/sqrt(sum(!is.na(.)))))
+    delta_szdist_se = rbind(delta_szdist_se,se_sz)
+    
+     
+}
+
+
+
+
+```
+
+
+
+
+
+```{r PlotDeltaSizeDistribution}
+
+plot_df = delta_sz
+plot_df$dbh = factor(plot_df$dbh,levels=unique(plot_df$dbh))
+
+for(d in sequence(n_delta)){
+  f_vnam = delta_szvar[d]
+  f_desc = sz_desc[d]
+  plot = ggplot(plot_df,aes_string(x = "dbh",y=f_vnam,
+                   #ymin=plot_df[[f_vnam]]-delta_szdist_sd[[f_vnam]],
+                   #ymax=plot_df[[f_vnam]]+delta_szdist_sd[[f_vnam]],
+                   colour="treatment")) +
+       facet_wrap(.~site)+#,scales="free")+
+       geom_boxplot(outlier.shape = NA) +
+       geom_hline(yintercept = 0, color="black",linetype=2)+
+       scale_x_discrete(labels=dbh_labs[4:13]) +
+       scale_colour_manual(values=ens_colour) +
+       ylab(paste0("Relative change in ", f_desc," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , angle  = 90
+                                              , hjust  = 1
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+  
+  
+  for (d in sequence(ndevice)){
+    f_output = paste0(f_vnam,"_delta-szdist.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = plot
+                    , device   = gg_device[d]
+                    , path     = size_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*0.7
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+       
+
+  
+}
+
+
+```
+
+
+
+
 ```{r DeltaFuelProcessing}
 
-hlm1d = data.table::fread(file.path(main_path,file_name[1]))
-fuel  = data.table::fread(file.path(main_path,file_name[4]))
+hlm1d = data.table::fread(file.path(main_path,model_file_name[1]))
+fuel  = data.table::fread(file.path(main_path,model_file_name[5]))
 
 fuel$fuel = factor(fuel$fuel,levels=unique(fuel$fuel))
 
@@ -960,6 +1176,14 @@ fuel_trunk   = fuel                      %>%
                select(-fuel)             %>% 
                rename(fates_fuel_trunk =
                       fates_fuel_amount)
+fuel_cwd     = fuel                          %>% 
+               filter(fuel %in% c(1,2,3))    %>% 
+               select(-fuel)                 %>% 
+               group_by(case,desc,time)      %>% 
+               summarize_all(sum,na.rm=TRUE) %>%
+               ungroup()                     %>% 
+               rename(fates_fuel_cwd = 
+                      fates_fuel_amount)
 
 canopy_fuel  = hlm1d                              %>% 
                select(case,
@@ -970,6 +1194,8 @@ canopy_fuel  = hlm1d                              %>%
 
 fuel_df  = fuel_notrunk                          %>% 
            left_join(fuel_trunk,
+                     by=c("case","desc","time")) %>% 
+           left_join(fuel_cwd,
                      by=c("case","desc","time")) %>% 
            left_join(canopy_fuel,
                      by=c("case","desc","time"))
@@ -982,10 +1208,12 @@ ctrl_fuel = ctrl_fuel                      %>%
 
 fuel_vars = c("fates_fuel_notrunk",
               "fates_fuel_trunk",
+              "fates_fuel_cwd",
               "fates_canopy_fuel_amount",
               "fates_canopy_fuel_bulkd")
 fuel_desc = c("non-trunk fuel load",
               "trunk fuel load",
+              "coarse woody debris",
               "canopy fuel load",
               "canopy bulk density")
 
@@ -1010,8 +1238,14 @@ for(v in sequence(n_fuel)){
   var_now = fuel_vars[v]
   delta_fuel[[var_now]] = delta_pct_fun(delta_fuel,var_now,1,0)
 }
+
+delta_fuel =  delta_fuel           %>% 
+              mutate_at(vars(fates_fuel_notrunk:fates_canopy_fuel_bulkd),
+                        zero_to_na)
+       
 deltafuel_mean   = NULL
 deltafuel_sd     = NULL
+deltafuel_se     = NULL
 
 for(n in treated_case){
   delta_now = delta_fuel %>% filter(case==n)
@@ -1028,6 +1262,12 @@ for(n in treated_case){
              group_by(site,treatment)                              %>% 
              summarize_all(sd,na.rm=TRUE)
   deltafuel_sd = rbind(deltafuel_sd,sd_fuel)
+  
+  se_fuel  = delta_now                                             %>% 
+             select(-c(time,case,desc))                            %>% 
+             group_by(site,treatment)                              %>% 
+             summarize_all(funs(se=sd(.,na.rm=TRUE)/sqrt(sum(!is.na(.)))))
+  deltafuel_se = rbind(deltafuel_se,se_fuel)
     
      
 }
@@ -1090,6 +1330,1261 @@ for(d in sequence(n_fuel)){
 
 
 
+
+```
+
+
+
+
+```{r CombineObsFiles}
+
+all_obs_paths = c("ba_path","nplant_path","ctrl_growth_path","delta_growth_path","mort_path","sz_path","fuel_path")
+obs_file_name = c("ba-obs.csv","nplant-obs.csv","ctrl-ddbh-obs.csv","ddbh-obs.csv","mort-obs.csv","szdist-obs.csv","fuel-obs.csv")
+n_path = length(all_obs_paths)
+for(p in sequence(n_path)){
+  p_now = get(all_obs_paths[p])
+  n_file = length(p_now)
+  f_now = obs_file_name[p]
+  tab = NULL
+  for(f in sequence(n_file)){
+     path_now = p_now[f]
+     site_now = stringr::str_extract(path_now,"(?<=_)[^_]+(?=\\.csv$)")
+     df_now = data.table::fread(path_now)
+     df_now$site = site_now
+     tab = rbind(tab,df_now)
+  }
+  data.table::fwrite(tab,file=file.path(obs_path,f_now))
+}
+
+
+
+
+```
+
+
+
+
+
+```{r RelativeChangeinStructureBenchmark}
+
+## benchmark baseline simulation
+
+model_ctrl_struc = overall_na                            %>% 
+                   select(case,desc,
+                          fates_basalarea,
+                          fates_nplant)                  %>% 
+                   filter(case %in% c(1,5,9)) 
+model_ctrl_struc_mean = model_ctrl_struc                 %>% 
+                   group_by(case,desc)                   %>% 
+                   summarize_all(mean,na.rm=TRUE)        %>% 
+                   ungroup()
+model_ctrl_struc_se = model_ctrl_struc                   %>% 
+                   group_by(case,desc)                   %>% 
+                   summarize_all(funs(se=sd(.,na.rm=TRUE)/sqrt(sum(!is.na(.)))))        %>% 
+                   ungroup()                            
+model_ctrl_struc = model_ctrl_struc_mean %>% left_join(model_ctrl_struc_se,by=c("case","desc"))
+model_ctrl_struc = model_ctrl_struc                 %>% 
+                      mutate(site=site_grab(desc))
+model_ctrl_struc$treatment = unlist(lapply(model_ctrl_struc$desc,treatment_grab))
+model_ctrl_struc = model_ctrl_struc                 %>% 
+                      select(-c(case,desc))               %>% 
+                      mutate(type="Model")
+obs_ba = fread(file.path(obs_path,"ba-obs.csv"))
+obs_nplant = fread(file.path(obs_path,"nplant-obs.csv"))
+obs_ctrl_ba = obs_ba                              %>% 
+              select(Treatment,site,Avg, SE_Avg)  %>% 
+              rename(treatment = Treatment,
+                     fates_basalarea = Avg,
+                     fates_basalarea_se = SE_Avg) %>% 
+              filter(treatment == "None")
+obs_ctrl_nplant = obs_nplant                             %>% 
+                  select(Treatment, site, Avg, SE_Avg)   %>% 
+                  rename(treatment = Treatment,
+                         fates_nplant = Avg,
+                         fates_nplant_se = SE_Avg)       %>% 
+                  filter(treatment == "None")
+obs_ctrl_struc = obs_ctrl_ba %>% left_join(obs_ctrl_nplant,by=c("site","treatment"))
+obs_ctrl_struc$type = "Observation"
+model_ctrl_struc = rbind(model_ctrl_struc, obs_ctrl_struc) 
+df <- model_ctrl_struc %>% select(site,type,fates_nplant,fates_nplant_se)
+
+plot_vars = c("fates_basalarea","fates_nplant")
+plot_desc = c("Basal area", "Stem density")
+n_plot = length(plot_vars)
+gg_struc = list()
+for(n in sequence(n_plot)){
+  var_now = plot_vars[n]
+  desc_now = plot_desc[n]
+  se_var = paste0(var_now,"_se")
+  if(n==1){unit <- quote(m^2~ha-1)
+  max_y <- max(model_ctrl_struc[[var_now]]) + max(model_ctrl_struc[[se_var]]) + 5
+  gg_now <- ggplot(model_ctrl_struc,aes_string(x="site",y=var_now,fill="type")) 
+  gg_now <- gg_now + geom_bar(position=position_dodge2(),stat="identity",width=0.6) 
+  gg_now <- gg_now + geom_errorbar(aes(ymin=model_ctrl_struc[[var_now]]-model_ctrl_struc[[se_var]],
+                         ymax=model_ctrl_struc[[var_now]]+model_ctrl_struc[[se_var]]),
+                     width=0.2,
+                     position=position_dodge(0.6),stat="identity")} 
+  if(n==2){unit <- quote(plants~ha^-1)
+  max_y <- max(model_ctrl_struc[[var_now]]) + max(model_ctrl_struc[[se_var]]) + 5
+  gg_now <- ggplot(df,aes_string(x="site",y=var_now,fill="type")) 
+  gg_now <- gg_now + geom_bar(position=position_dodge2(),stat="identity",width=0.6) 
+  gg_now <- gg_now + geom_errorbar(aes(ymin=df[[var_now]]-df[[se_var]],
+                         ymax=df[[var_now]]+df[[se_var]]),
+                     width=0.2,
+                     position=position_dodge(0.6),stat="identity")}
+  
+  gg_now = gg_now + scale_fill_manual(values=c("grey","grey50"))
+  gg_now = gg_now + coord_cartesian(ylim=c(0,max_y))
+  gg_now = gg_now + ylab(bquote(.(desc_now)~"("~.(unit)~")"))
+  gg_now = gg_now + xlab(" ") 
+  gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",
+                                base_line_size = 0.5,base_rect_size =0.5) 
+  gg_now = gg_now + theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+for (d in sequence(ndevice)){
+    f_output = paste0(var_now,"ctrl_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = gg_now
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.4
+                    , height   = gg_height*0.6
+                    , units    = gg_units
+                    , dpi      = gg_depth
+    )
+    }
+  gg_struc[[n]] = gg_now
+}
+
+gg_patch = wrap_plots(gg_struc[[1]], gg_struc[[2]]) +
+  plot_layout(guides="collect",ncol=2) & theme(legend.position="bottom")
+
+for (d in sequence(ndevice)){
+    f_output = paste0("ctrl-struc_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = gg_patch
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*0.6
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+ }
+
+
+model_struc = delta_mean %>% select(site, treatment, fates_nplant, fates_basalarea)
+model_struc_se   = delta_se                        %>% 
+                   select(site,treatment, fates_nplant_se,fates_basalarea_se) #%>% 
+                   #rename_if(is.numeric,rename_sd)
+model_struc = model_struc %>% left_join(model_struc_se, by=c("site","treatment"))
+
+
+model_struc$type = "Model"
+
+
+obs_ba_avg = obs_ba                       %>% 
+             select(Treatment,site,
+                    Avg_pct_diff,
+                    SE_Avg_pct_diff
+                   )
+obs_ba_final = obs_ba                 %>% 
+               select(Treatment,site,
+                      Fnl_pct_diff,
+                      SE_Fnl_pct_diff)
+obs_ba_avg  = obs_ba_avg                     %>% 
+              rename(treatment = Treatment,
+                fates_basalarea = Avg_pct_diff,
+                fates_basalarea_se = SE_Avg_pct_diff) %>% 
+              filter(!treatment %in% c("Burn+Thin","None"))      %>% 
+              mutate(type="Observation")
+obs_ba_avg  = obs_ba_avg                     %>% 
+              mutate(treatment = ifelse(treatment=="Burn", "Burn-Cool", treatment))
+burn_rep = obs_ba_avg                        %>% 
+           filter(treatment=="Burn-Cool")    %>%
+           mutate(treatment = "Burn-Hot")
+obs_ba_avg = rbind(obs_ba_avg, burn_rep)
+
+              
+          
+obs_nplant_avg = obs_nplant              %>% 
+                 select(Treatment,
+                        site,
+                        Avg_pct_diff,
+                        SE_Avg_pct_diff)
+obs_nplant_avg = obs_nplant_avg                   %>% 
+             rename(treatment = Treatment,
+                    fates_nplant = Avg_pct_diff,
+                    fates_nplant_se = SE_Avg_pct_diff) %>% 
+             filter(!treatment %in% c("Burn+Thin","None"))   %>% 
+            mutate(treatment = ifelse(treatment=="Burn","Burn-Cool",treatment))
+
+burn_rep = obs_nplant_avg                        %>% 
+           filter(treatment=="Burn-Cool")    %>%
+           mutate(treatment = "Burn-Hot")
+obs_nplant_avg = rbind(obs_nplant_avg, burn_rep)
+
+obs_struc = obs_nplant_avg %>% left_join(obs_ba_avg,by=c("site","treatment"))
+model_struc = rbind(model_struc,obs_struc)
+
+
+
+delta_ba_plot  = ggplot(model_struc,aes(x=site,y=fates_basalarea,
+                   fill=type)) +
+       facet_wrap(.~treatment) +              
+       geom_bar(position=position_dodge(),stat="identity",width=0.6) +
+       geom_errorbar(aes(ymin=fates_basalarea - fates_basalarea_se,
+                         ymax=fates_basalarea + fates_basalarea_se),
+                     width=0.2,
+                     position=position_dodge(0.6))+
+       scale_fill_manual(values=c("grey","grey50"))+
+       ylab(paste0("Relative change in basal area "," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm")
+                                              , angle  = 90
+                                              , hjust  = 1)#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0("delta_ba_benchmark_SE.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = delta_ba_plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.6
+                    , height   = gg_height*0.75
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+
+delta_stem_plot  = ggplot(model_struc,aes(x=site,y=fates_nplant,
+                   fill=type)) +
+       facet_wrap(.~treatment) +              
+       geom_bar(position=position_dodge(),stat="identity",width=0.6) +
+       geom_errorbar(aes(ymin=fates_nplant - fates_nplant_se,
+                         ymax=fates_nplant + fates_nplant_se),
+                     width=0.2,
+                     position=position_dodge(0.6))+
+       scale_fill_manual(values=c("grey","grey50"))+
+       ylab(paste0("Relative change in stem density "," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm")
+                                              , angle  = 90
+                                              , hjust  = 1)#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+for (d in sequence(ndevice)){
+    f_output = paste0("delta_stem_benchmark_SE.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = delta_stem_plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.6
+                    , height   = gg_height*0.75
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+
+```
+
+
+
+
+```{r SizeDistributionBenchmark}
+
+## benchmark baseline simulations first
+ctrl_sz_mod = sz_model                               %>% 
+              filter(case %in% c(1,5,9))             %>% 
+              select(case,desc,dbh,fates_nplant)     %>% 
+              group_by(case,desc,dbh)                %>% 
+              summarize_all(mean,na.rm=TRUE)         %>% 
+              ungroup()
+ctrl_sz_mod_se = sz_model                            %>% 
+              filter(case %in% c(1,5,9))             %>% 
+              select(case,desc,dbh,fates_nplant)     %>% 
+              group_by(case,desc,dbh)                %>% 
+              summarize_all(funs(fates_nplant_se=sd(.,na.rm=TRUE)/sqrt(sum(!is.na(.))))) %>% 
+              ungroup()
+ctrl_sz_mod = ctrl_sz_mod %>% left_join(ctrl_sz_mod_se,by=c("case","desc","dbh"))
+
+ctrl_sz_mod$treatment = unlist(lapply(ctrl_sz_mod$desc,treatment_grab))
+ctrl_sz_mod = ctrl_sz_mod                       %>% 
+              mutate(site = site_grab(desc),
+                     type = "Model")            %>% 
+              select(site,treatment,type,dbh,
+                     fates_nplant,
+                     fates_nplant_se)
+obs_szdist = fread(file.path(obs_path,"szdist-obs.csv"))
+obs_szdist = obs_szdist                          %>% 
+             mutate(dbh = case_when(Size_class<=20 ~ 4,
+                                    Size_class<=30 ~ 5,
+                                    Size_class<=40 ~ 6,
+                                    Size_class<=50 ~ 7,
+                                    Size_class<=60 ~ 8,
+                                    Size_class<=70 ~ 9,
+                                    Size_class<=80 ~ 10,
+                                    Size_class<=90 ~ 11,
+                                    Size_class<=100 ~ 12,
+                                    Size_class>100 ~ 13))
+ctrl_sz_obs = obs_szdist                             %>% 
+              filter(Treatment=="None")              %>% 
+              select(Treatment,dbh,
+                     site,Avg,SE_Avg)                %>% 
+              rename(treatment = Treatment,
+                     fates_nplant = Avg,
+                     fates_nplant_se = SE_Avg)      %>% 
+              mutate(type="Observation")
+ctrl_sz_mod = rbind(ctrl_sz_mod,ctrl_sz_obs) 
+plot_df = ctrl_sz_mod
+plot_df$dbh = factor(plot_df$dbh,levels=unique(plot_df$dbh))
+
+gg_now = ggplot(plot_df,aes(x=dbh,y=fates_nplant,fill=type)) 
+gg_now = gg_now + facet_wrap(.~site)
+gg_now = gg_now + geom_bar(position=position_dodge(),stat="identity",width=0.6) 
+gg_now = gg_now + geom_errorbar(aes(ymin=fates_nplant-fates_nplant_se,
+                         ymax=fates_nplant+fates_nplant_se),
+                     width=0.2,
+                     position=position_dodge(0.6))
+  
+gg_now = gg_now + scale_fill_manual(values=c("grey","grey50"))
+gg_now = gg_now + scale_x_discrete(labels=dbh_labs[4:13])
+gg_now = gg_now + ylab(expression("Stem density by sze class"~"( Plants"~ha^-1~")"))
+gg_now = gg_now + xlab(" ") 
+gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",
+                                base_line_size = 0.5,base_rect_size =0.5) 
+gg_now = gg_now + theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm")
+                                              , angle = 90
+                                              , hjust = 1)#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+for (d in sequence(ndevice)){
+    f_output = paste0("szdist_ctrl_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = gg_now
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*0.75
+                    , units    = gg_units
+                    , dpi      = gg_depth
+    )
+    }
+
+
+## benchmark delta size distribution
+
+mod_szdist = delta_szdist_mean %>% select(site,treatment,dbh,fates_nplant)
+mod_szdist_se = delta_szdist_se                            %>% 
+                select(site,treatment,dbh,fates_nplant_se) 
+
+mod_szdist = mod_szdist %>% left_join(mod_szdist_se, by=c("site","treatment","dbh"))
+
+mod_szdist$type = "Model"
+
+
+obs_szdist_avg = obs_szdist                       %>% 
+                 select(Treatment,site,
+                    dbh,
+                    Avg_pct_diff,
+                    SE_Avg_pct_diff
+                   )
+obs_szdist_final = obs_szdist                 %>% 
+                   select(Treatment,site,
+                      dbh,
+                      Fnl,
+                      SE_Fnl)
+obs_szdist_avg  = obs_szdist_avg                     %>% 
+                  rename(treatment = Treatment,
+                         fates_nplant = Avg_pct_diff,
+                         fates_nplant_se    = SE_Avg_pct_diff) %>% 
+              filter(!treatment %in% c("Burn+Thin","None"))    %>% 
+              mutate(type="Observation",
+                     treatment=ifelse(treatment=="Burn","Burn-Cool",treatment))
+burn_rep = obs_szdist_avg                         %>% 
+           filter(treatment=="Burn-Cool")         %>% 
+           mutate(treatment="Burn-Hot")
+
+
+mod_szdist = rbind(mod_szdist,obs_szdist_avg,burn_rep)
+
+plot_df = mod_szdist
+plot_df$dbh = factor(plot_df$dbh,levels=unique(plot_df$dbh))
+
+delta_szdist_plot  = ggplot(plot_df,aes(x=dbh,y=fates_nplant,
+                   fill=type)) +
+       facet_wrap(treatment~site) +              
+       geom_bar(position=position_dodge(),stat="identity",width=0.8) +
+       geom_errorbar(aes(ymin=fates_nplant - fates_nplant_se,
+                         ymax=fates_nplant + fates_nplant_se),
+                     width=0.2,
+                     position=position_dodge(0.8))+
+       scale_x_discrete(labels=dbh_labs[4:13]) +
+       scale_fill_manual(values=c("grey","grey50"))+
+       ylab(paste0("Relative change in stem density by size class "," (%)")) +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , angle  = 90
+                                              , hjust  = 1
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0("delta_szdist_benchmark_SE.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = delta_szdist_plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*1.05
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+
+
+
+```
+
+
+
+
+```{r GrowthBenchmark}
+
+## benchmark baseline simulation of growth rate by PFT and size class
+
+ddbh_szpf_mod = fread(file.path(main_path,model_file_name[6]))
+
+ddbh_szpf_mod = ddbh_szpf_mod                  %>% 
+                mutate(fates_ddbh=ifelse(fates_nplant==0, NA, fates_ddbh),
+                       fates_nplant=ifelse(fates_nplant==0,NA,fates_nplant))
+ddbh_szpf_mod = ddbh_szpf_mod                  %>% 
+                mutate(year = year(time))      %>% 
+                group_by(case,desc,year,
+                         pft,dbh)              %>% 
+                select(-time)                  %>% 
+                summarize_all(mean,na.rm=TRUE) %>% 
+                ungroup()                      %>% 
+                mutate(fates_ddbh = fates_ddbh/fates_nplant)
+
+ctrl_ddbh_mod = ddbh_szpf_mod                  %>% 
+                filter(case %in% c(1,5,9) &
+                       !dbh %in% c(1:3) &
+                         pft!=4)               %>% 
+                select(case,desc,pft,
+                       dbh,fates_ddbh)         %>% 
+                group_by(case,desc,pft,dbh)    %>% 
+                mutate(fates_ddbh = mean(fates_ddbh,
+                                         na.rm=TRUE),
+                       sample_n = sum(!is.na(fates_ddbh))) %>% 
+                ungroup() %>% distinct()
+ctrl_ddbh_sd_mod = ddbh_szpf_mod                  %>% 
+                   filter(case %in% c(1,5,9) &
+                       !dbh %in% c(1:3)&
+                         pft!=4)                  %>% 
+                   select(case,desc,pft,
+                          dbh,fates_ddbh)         %>% 
+                   group_by(case,desc,pft,dbh)    %>% 
+                   mutate(fates_ddbh = sd(fates_ddbh,
+                                          na.rm=TRUE)) %>% 
+                   ungroup() %>% distinct()      %>% 
+                   rename(ddbh_sd = fates_ddbh)
+
+ctrl_ddbh_mod = ctrl_ddbh_mod %>% left_join(ctrl_ddbh_sd_mod,by=c("case","desc","pft","dbh"))
+
+ctrl_ddbh_mod$margin_error = unlist(mapply(n=ctrl_ddbh_mod$sample_n,
+                                        mean = ctrl_ddbh_mod$fates_ddbh,
+                                        sd = ctrl_ddbh_mod$ddbh_sd,CI95_error))
+ctrl_ddbh_mod  = ctrl_ddbh_mod                   %>% 
+                 mutate(lwr_ddbh = fates_ddbh - margin_error,
+                        upr_ddbh = fates_ddbh + margin_error)
+ctrl_ddbh_mod  = ctrl_ddbh_mod                        %>% 
+                 mutate(site=site_grab(desc))         %>%    
+                 select(site,pft,dbh,
+                        fates_ddbh,lwr_ddbh,upr_ddbh) %>% 
+                 mutate(type="Model") 
+
+ctrl_ddbh_obs = fread(file.path(obs_path,"ctrl-ddbh-obs.csv"))
+
+ctrl_ddbh_obs  = ctrl_ddbh_obs                     %>% 
+                 rename(
+                     pft = PFT,
+                     dbh = DBH,
+                fates_ddbh = Mean_cm,
+                lwr_ddbh   = low95CI,
+                upr_ddbh   = high95CI) %>% 
+              filter(
+                       !pft %in% c("white_pine","oak")) %>% 
+              mutate(type="Observation",
+                     pft = case_when(pft=="yellow_pine" ~ 1,
+                                     pft=="cedar" ~ 2,
+                                     pft=="fir" ~ 3),
+                     dbh = case_when(dbh<=20 ~ 4,
+                                    dbh<=30 ~ 5,
+                                    dbh<=40 ~ 6,
+                                    dbh<=50 ~ 7,
+                                    dbh<=60 ~ 8,
+                                    dbh<=70 ~ 9,
+                                    dbh<=80 ~ 10,
+                                    dbh<=90 ~ 11,
+                                    dbh<=100 ~ 12,
+                                    dbh>100 ~ 13))
+ctrl_ddbh_mod = rbind(ctrl_ddbh_mod,ctrl_ddbh_obs)
+plot_df = ctrl_ddbh_mod
+
+plot_df$dbh = factor(plot_df$dbh,levels=unique(plot_df$dbh))
+plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
+pft_keys = pftinfo$short[1:3]
+names(pft_keys) = c(1:3)
+
+gg_now = ggplot(plot_df,aes(x=dbh,y=fates_ddbh,fill=type)) 
+gg_now = gg_now + facet_wrap(site~pft, labeller=labeller(pft=pft_keys), ncol=3)
+gg_now = gg_now + geom_bar(position=position_dodge(),stat="identity",width=0.6) 
+gg_now = gg_now + geom_errorbar(aes(ymin=fates_ddbh-lwr_ddbh,
+                         ymax=fates_ddbh+upr_ddbh),
+                     width=0.2,
+                     position=position_dodge(0.6))
+  
+gg_now = gg_now + scale_fill_manual(values=c("grey","grey50"))
+gg_now = gg_now + scale_x_discrete(labels=dbh_labs[4:13])
+gg_now = gg_now + ylab(expression("Growth rate"~"("~cm~plant^-1~yr^-1~")"))
+gg_now = gg_now + xlab("Size class (cm)") 
+gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",
+                                base_line_size = 0.5,base_rect_size =0.5) 
+gg_now = gg_now + theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm")
+                                              , angle = 90
+                                              , hjust = 1)#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+for (d in sequence(ndevice)){
+    f_output = paste0("szdist_ctrl_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = gg_now
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*0.8
+                    , units    = gg_units
+                    , dpi      = gg_depth
+    )
+    }
+
+
+
+## benchmark relative change in groth rate for treatments
+
+ddbh_pft = data.table::fread(file.path(main_path,model_file_name[3]))
+ddbh_pft = ddbh_pft                                                   %>% 
+           dplyr::select(case,desc,pft,time,fates_ddbh,fates_nplant)
+ddbh_pft = ddbh_pft                            %>% 
+           mutate(fates_ddbh = ifelse(fates_nplant==0,NA,fates_ddbh*ha_2_m2),
+                  year = year(time))
+ddbh_pft = ddbh_pft                       %>% 
+           group_by(case,desc,pft,year)   %>% 
+           select(-time)                  %>%
+           summarize_all(mean,na.rm=TRUE) %>% 
+           ungroup()
+
+ddbh_df = ddbh_pft
+
+ddbh_vars = names(ddbh_df)[grepl("ddbh",names(ddbh_df))]
+n_ddbh = length(ddbh_vars)
+for(v in sequence(n_ddbh)){
+  var_now = ddbh_vars[v]
+  ddbh_df[[var_now]] = ddbh_scale_fun(ddbh_df,var_now)
+}
+
+ctrl_ddbh = ddbh_df                     %>% 
+            filter(case %in% c(1,5,9))  %>% 
+            group_by(case,desc)         %>% 
+            slice(rep(seq_len(n()),times = nsites)) %>% ungroup()
+
+ddbh_pft_vars = c("fates_ddbh")
+ddbh_pft_desc = c("growth rate")
+
+n_delta = length(ddbh_pft_vars)
+
+
+ctrl_ddbh =  ctrl_ddbh                       %>% 
+              dplyr::select(all_of(ddbh_pft_vars)) %>% 
+              rename_at(vars(fates_ddbh),rename_fun)
+
+treat_ddbh = ddbh_df                                   %>% 
+              filter(!case%in% c(1,5,9))             
+
+treat_ddbh = treat_ddbh %>% dplyr::select(all_of(c("case",
+                                              "year",
+                                              "pft",
+                                              "desc",
+                                              ddbh_pft_vars)))
+    
+
+delta_ddbh_pft = cbind(treat_ddbh,ctrl_ddbh)
+delta_ddbh_pft = delta_ddbh_pft                    %>% 
+              mutate(site=site_grab(desc))
+delta_ddbh_pft$treatment = unlist(lapply(delta_ddbh_pft$desc,treatment_grab))
+
+delta_ddbh_pft = delta_ddbh_pft                             %>% 
+                 mutate(fates_ddbh = fates_ddbh/ctrl_ddbh)  %>% 
+                 select(-ctrl_ddbh)
+
+treated_case = unique(delta_ddbh_pft$case)
+
+ddbhbypft_mean = NULL
+ddbhbypft_sd   = NULL
+
+
+for(n in treated_case){
+  delta_now = delta_ddbh_pft %>% filter(case==n)
+ 
+  
+    mean_pft  = delta_now                                                %>% 
+               dplyr::select(-c(year,case,desc))                         %>% 
+               group_by(site,treatment,pft)                              %>% 
+               mutate(fates_ddbh = mean(fates_ddbh,na.rm=TRUE),
+                         sample_n = sum(!is.na(fates_ddbh)))             %>%  
+               ungroup() %>% distinct()
+    
+    ddbhbypft_mean = rbind(ddbhbypft_mean,mean_pft)
+    
+    sd_pft  = delta_now                                                 %>% 
+               dplyr::select(-c(year,case,desc))                        %>% 
+               group_by(site,treatment,pft)                              %>% 
+               summarize_all(sd,na.rm=TRUE) %>% ungroup()
+    
+    ddbhbypft_sd = rbind(ddbhbypft_sd,sd_pft)
+    
+     
+}
+
+
+model_ddbh = ddbhbypft_mean
+model_ddbh_sd = ddbhbypft_sd %>% rename(sd_ddbh = fates_ddbh)
+model_ddbh = model_ddbh %>% left_join(model_ddbh_sd, by=c("site","treatment","pft"))
+
+
+model_ddbh$margin_error = unlist(mapply(n=model_ddbh$sample_n,
+                                        mean = model_ddbh$fates_ddbh,
+                                        sd = model_ddbh$sd_ddbh,CI95_error))
+model_ddbh  = model_ddbh                   %>% 
+              mutate(lwr_ddbh = fates_ddbh - margin_error,
+                     upr_ddbh = fates_ddbh + margin_error)
+model_ddbh  = model_ddbh           %>% 
+              select(site,treatment,pft,fates_ddbh,lwr_ddbh,upr_ddbh) %>% 
+              mutate(type="Model") %>% filter(pft!=4)
+
+obs_ddbh = fread(file.path(obs_path,"ddbh-obs.csv"))
+obs_ddbh = obs_ddbh                     %>% 
+                 rename(
+                   treatment = Treatment, 
+                   pft = PFT,
+                   fates_ddbh = Multiplier_mean,
+                   lwr_ddbh   = Multiplier_low95CI,
+                   upr_ddbh   = Multiplier_high95CI) %>% 
+              filter(pft !="white_pine") %>% 
+              mutate(type="Observation",
+                     pft = case_when(pft=="yellow_pine" ~ 1,
+                                     pft=="cedar" ~ 2,
+                                     pft=="fir" ~ 3))  
+obs_ddbh = obs_ddbh                        %>% 
+           filter(treatment!="Burn+Thin")  %>% 
+           mutate(treatment=ifelse(treatment=="Burn","Burn-Cool",treatment))
+burn_rep = obs_ddbh                          %>% 
+           filter(treatment=="Burn-Cool")    %>% 
+           mutate(treatment="Burn-Hot")
+          
+
+model_ddbh = rbind(model_ddbh,obs_ddbh,burn_rep)
+plot_df = model_ddbh
+plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
+pft_labs = pftinfo$short
+names(pft_labs)=c(1:4)
+
+
+
+ddbh_pft_plot  = ggplot(plot_df,aes(x=pft,y=fates_ddbh,
+                   fill=type)) +
+       facet_wrap(treatment~site) +              
+       geom_bar(position=position_dodge(),stat="identity",width=0.6) +
+       geom_errorbar(aes(ymin=lwr_ddbh,
+                         ymax=upr_ddbh),
+                     width=0.2,
+                     position=position_dodge(0.6))+
+       scale_x_discrete(labels=pft_labs)+
+       scale_fill_manual(values=c("grey","grey50"))+
+       ylab("Treated to control growth rate ratio") +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0("ddbh_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = ddbh_pft_plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.6
+                    , height   = gg_height*0.8
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+
+
+
+```
+
+
+
+
+```{r MortalityByPFTBenchmark}
+
+mod_mortpft = bypft                          %>% 
+              select(case,desc,year,pft,
+                     fates_mortality)        %>% 
+              group_by(case,desc,year,pft)   %>% 
+              summarize_all(mean,na.rm=TRUE) %>% 
+              ungroup()
+
+mod_mortpft = mod_mortpft                   %>% 
+              mutate(site=site_grab(desc))
+
+bldgt = mod_mortpft                        %>% 
+        filter(site=="Blodgett")           %>% 
+        mutate(yr_group = cut(year,breaks=c(-Inf,2003,2009,2016,Inf),
+                              labels=c("2001-2003","2004-2009",
+                                       "2010-2016","2017-2020")))
+bldgt_sum = bldgt                          %>% 
+        group_by(desc,site,pft,yr_group)   %>% 
+        select(-c(case,year))              %>% 
+        summarize_all(sum,na.rm=TRUE)      %>% 
+        ungroup()
+
+
+stef = mod_mortpft                         %>% 
+       filter(site=="STEF")                %>% 
+       mutate(yr_group = cut(year,breaks=c(-Inf, 2014, 2016, 2018,Inf),
+                             labels=c("2011-2014","2015-2016",
+                                      "2017-2018","2018-2020")))
+
+
+stef_sum = stef                            %>% 
+       group_by(desc,site,pft,yr_group)    %>% 
+       select(-c(case,year))               %>% 
+       summarize_all(sum,na.rm=TRUE)       %>% 
+       ungroup()                           %>% 
+       filter(yr_group!="2018-2020")
+
+mod_mortpft = rbind(bldgt_sum,stef_sum)
+mod_mortpft$treatment = unlist(lapply(mod_mortpft$desc,treatment_grab))
+mod_mortpft = mod_mortpft %>% select(-desc)
+mod_sum = mod_mortpft                      %>% 
+          select(-yr_group)                %>% 
+          group_by(site,treatment,pft)     %>% 
+          summarize_all(sum,na.rm=TRUE)    %>% 
+          ungroup()
+
+mod_mortpft$se_mortality = 0
+
+mod_mortpft$type = "Model"
+mod_sum$type = "Model"
+mod_sum$se_mortality = NA
+
+     
+
+obs_mortpft = fread(file.path(obs_path,"mort-obs.csv"))
+
+obs_mortpft = obs_mortpft                         %>% 
+              select(site,Treatment,PFT,
+                     calculationInterval,prob,SE) %>% 
+              rename(treatment = Treatment,
+                     pft = PFT,
+                     yr_group = calculationInterval,
+                     fates_mortality = prob,
+                     se_mortality = SE)           %>% 
+              filter(treatment!="Burn+Thin")      %>% 
+              mutate(pft=case_when(pft=="pine" ~ "1",
+                                   pft=="cedar" ~ "2",
+                                   pft=="fir" ~ "3",
+                                   pft=="oak" ~ "4"),
+                     yr_group=case_when(yr_group=="2001-2003 (2-year)" ~ "2001-2003",
+                                        yr_group=="2003-2009 (6-year)" ~ "2004-2009",
+                                        yr_group=="2009-2016 (7-year)" ~ "2010-2016",
+                                        yr_group=="2016-2020 (4-year)" ~ "2017-2020",
+                                        yr_group=="2012-2014 (2-year)" ~ "2011-2014",
+                                        yr_group=="2014-2016 (2-year)" ~ "2015-2016",
+                                        yr_group=="2016-2018 (2-year)" ~ "2017-2018"),
+                     fates_mortality = fates_mortality*100,
+                     type = "Observation",
+                     treatment=ifelse(treatment=="Burn","Burn-Cool",treatment))
+obs_sum = obs_mortpft                         %>% 
+              select(-c(yr_group,type))       %>% 
+              group_by(site,treatment,pft)    %>% 
+              summarize_all(sum,na.rm=TRUE)   %>% 
+              ungroup()
+obs_sum$type = "Observation"
+burn_rep_sum = obs_sum                          %>% 
+               filter(treatment=="Burn-Cool")   %>% 
+               mutate(treatment="Burn-Hot")
+burn_rep_mortpft = obs_mortpft                  %>% 
+               mutate(treatment=ifelse(treatment=="Burn","Burn-Cool",treatment)) %>% 
+               filter(treatment=="Burn-Cool")   %>% 
+               mutate(treatment="Burn-Hot")
+      
+      
+
+mod_mortpft = rbind(mod_mortpft,obs_mortpft,burn_rep_mortpft)
+mod_sum = rbind(mod_sum,obs_sum,burn_rep)
+
+mod_mortpft = mod_mortpft                   %>% 
+              mutate(treatment=if_else(treatment=="None", "Control", treatment))
+
+mod_sum = mod_sum                   %>% 
+              mutate(treatment=if_else(treatment=="None", "Control", treatment))
+plot_df = mod_mortpft
+plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
+pft_labs = pftinfo$short
+names(pft_labs)=c("1","2","3","4")
+pft_colour = pftinfo$colour
+
+n_plot = length(unique(plot_df$site))
+for(n in sequence(n_plot)){
+  site_now = unique(plot_df$site)[n]
+  df_now = plot_df %>% filter(site==site_now)
+  mortpft_plot  = ggplot(df_now,aes(x=yr_group,y=fates_mortality,
+                   fill=type)) +
+       facet_wrap(pft~treatment, ncol= 4, labeller = labeller(pft=pft_labs)) +              
+       geom_bar(position=position_dodge(),stat="identity",width=1) +
+       scale_fill_manual(values=c("grey","grey50"))+
+       ylab("Summed mortality rate") +
+       xlab("") +
+       #labs(title = site_now)+
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm")
+                                              , angle = 90
+                                              , hjust = 1)#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0(site_now,"mortpft_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = mortpft_plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*1.1
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+
+
+}
+
+plot_df = mod_sum
+plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
+plot_df$treatment = factor(plot_df$treatment,levels=c("Control","Burn-Cool","Burn-Hot","Thin"))
+
+  mortsum_plot  = ggplot(plot_df,aes(x=pft,y=fates_mortality,
+                   fill=type)) +
+       facet_wrap(site~treatment,ncol=4) +
+       geom_bar(position=position_dodge(),stat="identity",width=0.6) +
+       #geom_errorbar(aes(ymin=fates_mortality-sd_mortality,
+      #                   ymax=fates_mortality+sd_mortality),
+       #              width=0.2,
+      #               position=position_dodge(0.6))+
+       scale_x_discrete(labels=pft_labs)+
+       scale_fill_manual(values=c("grey","grey50"))+
+       ylab("Summed mortality rate") +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0("mortsum_benchmark_SD.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = mortsum_plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*0.8
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+
+ 
+
+ 
+
+```
+
+
+
+
+
+```{r FuelBenchmark}
+
+## Benchmark fuel load for control case
+mod_fuel_df =   fuel_df                       %>% 
+                 mutate(year=year(time))      %>% 
+                 select(case,desc,year,
+                  fates_fuel_notrunk,
+                  fates_fuel_cwd)    
+
+mod_fuel_bldgt = mod_fuel_df                    %>% 
+                 filter(year %in% c(2001,2003) &
+                        case %in% c(1:4))
+
+bldgt_fuel_ctrl = mod_fuel_bldgt               %>% 
+                filter(case==1)                %>% 
+                group_by(case,desc,year)       %>% 
+                summarize_all(mean,na.rm=TRUE) %>% 
+                ungroup() 
+
+bldgt_fuel_se = mod_fuel_bldgt                 %>% 
+                filter(case==1)                %>% 
+                group_by(case,desc,year)       %>%
+                summarize_each(funs(se=sd(.)/sqrt(n()))) %>% 
+                ungroup() 
+bldgt_fuel_ctrl = bldgt_fuel_ctrl %>% left_join(bldgt_fuel_se,
+                                                by=c("case","desc","year"))
+bldgt_fuel_ctrl$treatment = unlist(lapply(bldgt_fuel_ctrl$desc,treatment_grab)) 
+bldgt_fuel_ctrl = bldgt_fuel_ctrl %>% mutate(site=site_grab(desc),
+                                             type = "Model")
+bldgt_fuel_ctrl = bldgt_fuel_ctrl %>% select(-c(case,desc))
+
+obs_fuel   = fread(file.path(obs_path,"fuel-obs.csv"))
+obs_fuel_ctrl = obs_fuel                           %>% 
+                select(site,Treatment,Fuel_class,
+                        Year,Fuel_load,SE)          %>% 
+                 filter(Fuel_class%in%c("BROWNS_FOREST_FLOOR",
+                       "Total_1_10_100_hr_fuels") &
+                        Treatment=="None")        %>% 
+                 rename(treatment = Treatment,
+                        year = Year)              %>% 
+                 pivot_wider(names_from = Fuel_class,
+                             values_from = c(Fuel_load,SE))
+obs_fuel_ctrl = obs_fuel_ctrl                      %>% 
+                rename(fates_fuel_notrunk = Fuel_load_BROWNS_FOREST_FLOOR,
+                       fates_fuel_notrunk_se = SE_BROWNS_FOREST_FLOOR,
+                       fates_fuel_cwd = Fuel_load_Total_1_10_100_hr_fuels,
+                       fates_fuel_cwd_se = SE_Total_1_10_100_hr_fuels)
+obs_fuel_ctrl = obs_fuel_ctrl %>% mutate(type="Observation")
+obs_fuel_ctrl = obs_fuel_ctrl %>% mutate_at(vars(fates_fuel_notrunk:fates_fuel_cwd_se),
+                                            ~.x*0.045)
+
+bldgt_fuel_ctrl = rbind(bldgt_fuel_ctrl,obs_fuel_ctrl)
+bldgt_fuel_ctrl$year = factor(bldgt_fuel_ctrl$year,levels=unique(bldgt_fuel_ctrl$year))
+
+plot_vars = c("fates_fuel_notrunk","fates_fuel_cwd")
+plot_desc = c("Total fuel","Coarse woody debris")
+unit = quote(kgC~m^-2)
+n_plot = length(plot_vars)
+for(n in sequence(n_plot)){
+  var_now = plot_vars[n]
+  desc_now = plot_desc[n]
+  se_var = paste0(var_now,"_se")
+  gg_now = ggplot(bldgt_fuel_ctrl,aes_string(x="year",y=var_now,fill="type")) 
+  gg_now = gg_now + geom_bar(position=position_dodge(),stat="identity",width=0.6) 
+  gg_now = gg_now + geom_errorbar(aes(ymin=bldgt_fuel_ctrl[[var_now]]-bldgt_fuel_ctrl[[se_var]],
+                         ymax=bldgt_fuel_ctrl[[var_now]]+bldgt_fuel_ctrl[[se_var]]),
+                     width=0.2,
+                     position=position_dodge(0.6))
+  gg_now = gg_now + scale_fill_manual(values=c("grey","grey50"))
+  gg_now = gg_now + ylab(bquote(.(desc_now)~"("~.(unit)~")"))
+  gg_now = gg_now + xlab("Year") 
+  gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",
+                                base_line_size = 0.5,base_rect_size =0.5) 
+  gg_now = gg_now + theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0(var_now,"_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = gg_now
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.5
+                    , height   = gg_height*0.6
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+    
+  
+  
+}
+
+
+## benchmark relative change in treated units compared to control
+
+ctrl_fuel = fuel_df %>% filter(case %in% c(1))
+ctrl_fuel = ctrl_fuel                      %>% 
+            group_by(case,desc)            %>% 
+            slice(rep(seq_len(n()),times = 3)) %>% ungroup()
+
+
+fuel_vars = c("fates_fuel_notrunk",
+              "fates_fuel_cwd")
+fuel_desc = c("total fuel load",
+              "coarse woody debris")
+
+n_fuel = length(fuel_vars)
+
+
+ctrl_fuel =  ctrl_fuel                    %>% 
+             select(all_of(fuel_vars))     %>% 
+             rename_at(vars(fates_fuel_notrunk:fates_fuel_cwd),rename_fun)
+
+treat_fuel = fuel_df                                 %>% 
+             filter(case%in% c(2:4))                %>% 
+             select(case,desc,time,
+                    fates_fuel_notrunk,
+                    fates_fuel_cwd)
+  
+delta_fuel = cbind(treat_fuel,ctrl_fuel)
+
+delta_fuel = delta_fuel                    %>% 
+             mutate(site=site_grab(desc))
+delta_fuel$treatment = unlist(lapply(delta_fuel$desc,treatment_grab))
+
+
+for(v in sequence(n_fuel)){
+  var_now = fuel_vars[v]
+  delta_fuel[[var_now]] = delta_pct_fun(delta_fuel,var_now,1,0)
+}
+
+delta_fuel =  delta_fuel           %>% 
+              mutate_at(vars(fates_fuel_notrunk:fates_fuel_cwd),
+                        zero_to_na)
+       
+deltafuel_mean   = NULL
+deltafuel_se     = NULL
+
+for(n in treated_case){
+  delta_now = delta_fuel %>% filter(case==n)
+ 
+  mean_fuel  = delta_now                                            %>% 
+              mutate(year=year(time))                               %>% 
+              filter(year%in%c(2001,2003))                          %>% 
+              select(-c(time,case,desc,year))                       %>% 
+              group_by(site,treatment)                              %>% 
+              summarize_all(mean,na.rm=TRUE)
+    
+  deltafuel_mean = rbind(deltafuel_mean,mean_fuel)
+    
+  se_fuel  = delta_now                                             %>%
+             mutate(year=year(time))                               %>% 
+             filter(year%in%c(2001,2003),
+                    !is.na(fates_fuel_notrunk))                    %>% 
+             select(-c(time,case,desc,year))                       %>% 
+             group_by(site,treatment)                              %>% 
+             #summarize_all(sd,na.rm=TRUE)
+             summarize_all(funs(se=sd(.)/sqrt(n())))
+  deltafuel_se = rbind(deltafuel_se,se_fuel)
+    
+}
+
+mod_deltafuel = deltafuel_mean                         %>% 
+                select(site,treatment,
+                       fates_fuel_notrunk,
+                       fates_fuel_cwd)                 
+               
+mod_deltafuel_se = deltafuel_se                        %>% 
+                   select(site,treatment,
+                          fates_fuel_notrunk_se,
+                          fates_fuel_cwd_se)            
+                  
+mod_deltafuel = mod_deltafuel %>% left_join(mod_deltafuel_se, by=c("site","treatment"))
+mod_deltafuel = mod_deltafuel                           %>% 
+                mutate(type = "Model")
+
+obs_deltafuel = obs_fuel                               %>% 
+                filter(Year == 2003 &
+                      Fuel_class %in% c("BROWNS_FOREST_FLOOR",
+                                        "Total_1_10_100_hr_fuels") &
+                        Treatment %in% c("Burn","Thin"))  %>% 
+                select(site,Treatment,Fuel_class,
+                       percent_diff,se_percent_diff)   %>% 
+                pivot_wider(names_from=Fuel_class,
+                            values_from=c(percent_diff,se_percent_diff)) %>% 
+                rename(fates_fuel_notrunk = percent_diff_BROWNS_FOREST_FLOOR,
+                       fates_fuel_notrunk_se = se_percent_diff_BROWNS_FOREST_FLOOR,
+                       fates_fuel_cwd = percent_diff_Total_1_10_100_hr_fuels,
+                       fates_fuel_cwd_se = se_percent_diff_Total_1_10_100_hr_fuels,
+                       treatment = Treatment) %>% 
+                mutate(type = "Observation",
+                       treatment=ifelse(treatment=="Burn","Burn-Cool",treatment))
+burn_rep  = obs_deltafuel                     %>% 
+            filter(treatment=="Burn-Cool")    %>% 
+            mutate(treatment="Burn-Hot")
+mod_deltafuel = rbind(mod_deltafuel, obs_deltafuel,burn_rep)
+plot_desc = tolower(plot_desc)
+for(n in sequence(n_plot)){
+  var_now = plot_vars[n]
+  desc_now = plot_desc[n]
+  se_var = paste0(var_now,"_se")
+  gg_now = ggplot(mod_deltafuel,aes_string(x="treatment",y=var_now,fill="type")) 
+  gg_now = gg_now + geom_bar(position=position_dodge(),stat="identity",width=0.6) 
+  gg_now = gg_now + geom_errorbar(aes(ymin=mod_deltafuel[[var_now]]-mod_deltafuel[[se_var]],
+                         ymax=mod_deltafuel[[var_now]]+mod_deltafuel[[se_var]]),
+                     width=0.2,
+                     position=position_dodge(0.6))
+  gg_now = gg_now + scale_fill_manual(values=c("grey","grey50"))
+  gg_now = gg_now + ylab(paste("Relative change in", desc_now, "(%)",sep=" "))
+  gg_now = gg_now + xlab("") 
+  gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",
+                                base_line_size = 0.5,base_rect_size =0.5) 
+  gg_now = gg_now + theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0(var_now,"_delta_benchmark.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = gg_now
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.5
+                    , height   = gg_height*0.7
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+}
+
+deltafuel_plot  = ggplot(mod_deltafuel,aes(x=pft,y=fates_mortality,
+                   fill=type)) +
+       facet_wrap(site~treatment) +
+       geom_bar(position=position_dodge(),stat="identity",width=0.6) +
+       geom_errorbar(aes(ymin=fates_mortality-sd_mortality,
+                         ymax=fates_mortality+sd_mortality),
+                     width=0.2,
+                     position=position_dodge(0.6))+
+       scale_x_discrete(labels=pft_labs)+
+       scale_fill_manual(values=c("grey","grey50"))+
+       ylab("Summed mortality rate") +
+       xlab("") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+
+ for (d in sequence(ndevice)){
+    f_output = paste0("mortsum_benchmark_SD.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = mortsum_plot
+                    , device   = gg_device[d]
+                    , path     = mean_path
+                    , width    = gg_widthn*0.6
+                    , height   = gg_height*0.6
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+
+
+
+
+
+
+            
 
 ```
 
