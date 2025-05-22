@@ -70,7 +70,8 @@ trt_dates = list(
 
 invntry_dates = list(
   Blodgett = c(2001, 2003, 2009, 2016, 2020),
-  STEF = c(2012, 2014, 2016, 2018)
+  STEF = c(2012, 2014, 2016, 2018),
+  Teakettle = c('DBH_Pre', 'DBH_Post', 'DBH_10Post', 'DBH_15Post', 'DBH_1PostRX', 'DBH_2PostRX')
   # For Teakettle, we do something different
 )
 ```
@@ -190,6 +191,29 @@ calculate_pct_diff <- function(emm_df, compare_column, ref, out_col){
       
       # SE of percent difference
       emm_df$se_percent_diff[i] <- sqrt(var_pd)
+    }
+  }
+  return(emm_df)
+}
+
+calculate_simple_diff <- function(emm_df, compare_column, ref, out_col){
+  ref_value <- emm_df[[out_col]][emm_df[[compare_column]] == ref]
+  
+  ## Add simple difference
+  emm_df$diff <- emm_df[[out_col]] - ref_value
+  
+  ## Calculate standard error on percent difference
+  ## Initialize column
+  emm_df$se_diff <- NA
+  
+  ## Loop through all rows (skip the reference/control row)
+  for (i in 1:nrow(emm_df)) {
+    if (emm_df[[compare_column]][i] != ref) {
+      se_t <- emm_df$SE[i]
+      se_c <- emm_df$SE[emm_df[[compare_column]] == ref]
+      
+      # SE of simple difference
+      emm_df$se_diff[i] <- sqrt(se_c^2 + se_t^2)
     }
   }
   return(emm_df)
@@ -1390,142 +1414,110 @@ annualize <- function(p, se_p, t) {
   return(c(rate = rate, se = se_rate))
 }
 
-make_mrtlty_tbl <- function(df, status_col, dead_ind, t1, t2, rndm_fx = NULL){
+make_mrtlty_tbl <- function(df, 
+                            status_col, 
+                            dead_ind, 
+                            rndm_fx = NULL, 
+                            year_offset = FALSE){
   ## Convert status to a numerical code
   df$Dead <- ifelse(df[[status_col]]==dead_ind, 1, 0)
   
   ## Treatment as factor, reference level is the control
   df$Treatment <- factor(df$Treatment, levels = c('None', 'Burn', 'Thin', 'Burn+Thin'))
   
-  ## Initialize dataframe to hold estimates for all PFTs
-  mrtlty_annualized <- data.frame()
-  
-  ## Loop through PFTs
-  for(p in c('cedar', 'fir', 'pine', 'oak')){
-    print(p)
-    to_analyze <- df[df$PFT_simple==p,]
-    
-    if(sum(to_analyze$Dead)!=0){
-          # Model mortality using a binomial distribution
-      mod <- glmer(paste0('Dead ~ Treatment + (1|', rndm_fx, ')'), ## plot and compartment are random effects
-                 family = binomial,
-                 data = to_analyze)
-      
-      ## Predicted mortalities on response scale
-      emm <- emmeans(mod, ~Treatment, type = 'response')
-      
-      annualized <- as.data.frame(emm) %>%
-        rowwise() %>% 
-        mutate(
-          transformed = list(annualize(prob, SE, t=t2-t1)),
-          annual_mortality = transformed[[1]],
-          SE_annual = transformed[[2]]
-        ) %>% 
-        select(Treatment, prob, SE, annual_mortality, SE_annual)
-      
-      annualized <- annualized %>%
-        mutate(
-          lower95CL = annual_mortality - 1.96 * SE_annual,
-          upper95CL = annual_mortality + 1.96 * SE_annual
-      )
-      
-      annualized$PFT <- p
-      # annualized$calculationInterval <- paste0(ivl, ' (', as.character(t), '-year)')
-      annualized$Start_yr <- t1
-      annualized$End_yr <- t2
-      annualized$nYr <- annualized$End_yr - annualized$Start_yr
-      
-      mrtlty_annualized <- rbind(mrtlty_annualized, annualized)
+  if(sum(df$Dead)!=0){
+    if(year_offset){
+      ## The terms in this equation are bespoke for Teakettle
+      mod <- glmer(Dead ~ Treatment + offset(log(Mort_y2 - Mort_y1)) + (1 | Plot),
+                   data = df,
+                   family = poisson)
+    }else{
+      # Model mortality using a binomial distribution
+      mod <- glmer(paste0('Dead ~ Treatment + (1|', rndm_fx, ')'), 
+                  family = binomial,
+                  data = df)
     }
+
+    ## Predicted mortalities on response scale
+    emm <- emmeans(mod, ~Treatment, type = 'response')
+      
+  }else{
+    return(data.frame())
+  }
+  return(as.data.frame(emm))
   }
   
-  return(mrtlty_annualized)
+multiply_se <- function(x, y, se_x, se_y){
+  return(sqrt(x^2 * se_y^2 + y^2 * se_x^2))
 }
 
+get_cumul_SE <- function(temp){
+  SE1 <- temp$SE[1]
+  surv1 <- temp$survival[1]
+  
+  for(i in 2:nrow(temp)){
+    SE1 <- multiply_se(x = surv1,
+                y = temp$survival[i],
+                se_x = SE1,
+                se_y = temp$SE[i])
+    
+    surv1 <- surv1 * temp$survival[i]
+    
+  }
+  return(SE1)
+}
 
+get_cumul_mort <- function(df, group_cols){
+  out <- df %>%
+    group_by(across({{group_cols}})) %>% 
+    summarise(
+    survival = prod(survival),
+    prob = 1- prod(survival),
+    start_yr = first(start_yr),
+    end_yr = last(end_yr)
+  )
+  
+  out$SE <- unlist(
+    df %>% 
+      group_by(across({{group_cols}})) %>%
+      group_map(~ get_cumul_SE(.x))
+    )
+  
+  if(length(group_cols)==1){
+    out <- calculate_simple_diff(out,
+                                compare_column = 'Treatment',
+                                ref = 'None',
+                                out_col = 'prob')  
+    
+    out <- calculate_pct_diff(out,
+                                compare_column = 'Treatment',
+                                ref = 'None',
+                                out_col = 'prob')  
+  }
+  return(out)
+}
 
-## t1, t2 reference DBH_Timeframe values: DBH_Post, DBH_10Post, DBH_15Post
-get_teakettle_mort <- function(t1, t2, ref = 'None'){
-  ## Open file with number of deaths and number of survivors for t1-t2 period
-  fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', t1, '-', t2, '.csv')
-  df <- read.csv(fn)
-  
-  ## Treatment as factor, reference level is the control
-  df$Treatment <- factor(df$Treatment, levels = c('None', 'Burn', 'Thin', 'Burn+Thin'))
-  
-  ## Convert deaths to binary
-  df$Dead <- ifelse(df$Status==2, 1, 0)
-  
+if(site == 'Teakettle'){
+  teakettle_unit_dates <- ba_by_unit %>% 
+    group_by(Unit, DBH_timeframe) %>%
+    summarize(
+      Year = mean(Year)
+    )
+}
+
+get_unit_years <- function(df, t1, t2){
   ## Add the first and last year of the measurement period of the plot
   df$Mort_y1 <- NA
   df$Mort_y2 <- NA
 
   for(u in unique(df$Plot)){
-    df$Mort_y1[df$Plot==u] = timeframe_lookup$Year[timeframe_lookup$Unit==u & timeframe_lookup$DBH_timeframe==t1]
-    df$Mort_y2[df$Plot==u] = timeframe_lookup$Year[timeframe_lookup$Unit==u & timeframe_lookup$DBH_timeframe==t2]
+    df$Mort_y1[df$Plot==u] = teakettle_unit_dates$Year[teakettle_unit_dates$Unit==u &
+                                                         teakettle_unit_dates$DBH_timeframe==t1]
+    df$Mort_y2[df$Plot==u] = teakettle_unit_dates$Year[teakettle_unit_dates$Unit==u &
+                                                         teakettle_unit_dates$DBH_timeframe==t2]
   }
   
-  ## Initialize dataframe to hold estimates for all PFTs
-  mrtlty_annualized <- data.frame()
-  
-  ## Loop through PFTs
-  for(p in c('cedar', 'fir', 'pine', 'oak')){
-    # print(p)
-    to_analyze <- df[df$PFT_simple==p,]
-    ## Model annualized mortality
-    mod <- glmer(Dead ~ Treatment + offset(log(Mort_y2 - Mort_y1)) + (1 | Plot),
-        data = to_analyze,
-        family = poisson)
-    
-    ## Get differences between treatments
-    emm <- emmeans(mod, ~Treatment, type = 'response')
-    emm_df <- as.data.frame(emm)
-    
-    ## Add a PFT column
-    emm_df$PFT <- p
-      
-    ## Add percent difference
-    ref_value <- emm_df$rate[emm_df$Treatment == ref]
-    emm_df$percent_diff <- 100 * (emm_df$rate - ref_value) / ref_value
-      
-    ## Calculate standard error on percent difference
-    ## Initialize column
-    emm_df$se_percent_diff <- NA
-    
-    compare_column <- 'Treatment'
-    ## Loop through all rows (skip the reference/control row)
-    for (i in 1:nrow(emm_df)) {
-      if (emm_df[[compare_column]][i] != ref) {
-        mu_t <- emm_df$rate[i]
-        mu_c <- emm_df$rate[emm_df[[compare_column]] == ref]
-        
-        se_t <- emm_df$SE[i]
-        se_c <- emm_df$SE[emm_df[[compare_column]] == ref]
-        
-        # Derivatives
-        dfd_mt <- 100 / mu_c
-        dfd_mc <- -100 * mu_t / (mu_c^2)
-        
-        # Approximate variance using delta method
-        var_pd <- (dfd_mt^2) * (se_t^2) + (dfd_mc^2) * (se_c^2)
-        
-        # SE of percent difference
-        emm_df$se_percent_diff[i] <- sqrt(var_pd)
-      }
-    }
-    
-    mrtlty_annualized <- rbind(mrtlty_annualized, emm_df)
-  }
-  
-  ## Identify year range associated with measurements for each treatment
-  mrtlty_annualized$calculationInterval = NA
-  for(trt in unique(mrtlty_annualized$Treatment)){
-    mrtlty_annualized[mrtlty_annualized$Treatment == trt, 'calculationInterval'] = paste0(
-      as.character(min(df$Mort_y1[df$Treatment==trt])), '-', as.character(max(df$Mort_y2[df$Treatment==trt])))
-      }
-  
-
-  return(mrtlty_annualized)
+  return(df)
 }
 
 
@@ -1591,83 +1583,430 @@ ggsurvplot(km_fit, data = surv_df, conf.int = TRUE, risk.table = TRUE)
 library('coxme')
 
 coxme_model <- coxme(
-  Surv(entry, exit, status) ~ treatment + (1 | unit_id/plot_id),
+  Surv(entry, exit, status) ~ treatment + (1 | unit_id),
   data = surv_df[surv_df$PFT=='fir',]
 )
 
 ```
 
 
-```{r mort_timeseries}
+```{r mort_allTrees}
 
 allmort <- data.frame()
 
-if(site!='Teakettle'){
+if(site=='Teakettle'){
   status_col = 'Status'
-    dead_ind = 2
-    rndm_fx = 'Plot'
-    treeid = 'TreeID_clean'
-    unitid = 'Plot'
-    year_col = 'end_year'
-  if(site=='Blodgett'){
+  dead_ind = 2
+  rndm_fx = 'Plot'
+  treeid = 'TreeID_clean'
+  unitid = 'Plot'
+  year_col = 'end_year'
+  pfts_in_mort <- c('cedar', 'fir', 'pine')
+  }else if(site=='Blodgett'){
     status_col = 'status'
     dead_ind = 'Snag'
-    rndm_fx = 'comp/plot_id'
+    rndm_fx = 'comp'
     treeid = 'tree_id'
     plotid = 'plot_id'
     unitid = 'comp'
-    year_col = 'year'
+    year_col = 'year' 
+    pfts_in_mort <- c('cedar', 'fir', 'pine', 'oak')
     }else if(site =='STEF'){
       status_col = 'Status'
       dead_ind = 'D'
       rndm_fx = 'Unit'
-      }
+      treeid = 'TagNo'
+      unitid = 'Unit'
+      year_col = 'Year'
+      pfts_in_mort <- c('fir')
+    }
+
+for(y in 2:length(invntry_dates[[site]])){
+  ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
+  print(ivl)
+  fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
+               ivl, '.csv')
+  raw <- read.csv(fn)
   
-  for(y in 2:length(invntry_dates[[site]])){
+  if(site=='Teakettle'){
+    t1 <- invntry_dates[[site]][y-1]
+    t2 <- invntry_dates[[site]][y]
+    raw <- get_unit_years(raw, t1 = t1, t2 = t2)
+    
+    m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15,], status_col=status_col, 
+                     dead_ind = dead_ind, 
+                     rndm_fx = rndm_fx)
+    
+    for(trt in unique(m$Treatment)){
+      m$start_yr[m$Treatment==trt] <- mean(raw$Mort_y1[raw$Treatment==trt])
+      m$end_yr[m$Treatment==trt] <- mean(raw$Mort_y2[raw$Treatment==trt])
+    }
+    }else{
+      m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15,], status_col=status_col, 
+                     dead_ind = dead_ind, 
+                     rndm_fx = rndm_fx)
+      m <- calculate_simple_diff(m, 
+                                   compare_column = 'Treatment',
+                                   ref = 'None',
+                                   out_col = 'prob')
+      m <- calculate_pct_diff(m, 
+                                compare_column = 'Treatment',
+                                ref = 'None',
+                                out_col = 'prob')
+      
+      m$start_yr <- invntry_dates[[site]][y-1]
+      m$end_yr <- invntry_dates[[site]][y]
+  }
+  
+  allmort <- bind_rows(allmort, m)
+  
+  }
+    
+allmort <- allmort[,!(colnames(allmort) %in% c('df', 'asymp.LCL', 'asymp.UCL'))]
+allmort$Timeframe <- 'Period mortality'
+
+### Get cumulative mortality for entire period
+allmort$survival = 1 - allmort$prob
+
+study_mort <- get_cumul_mort(allmort, 
+                             group_cols = c('Treatment'))
+study_mort$Timeframe <- 'Study mortality'
+
+if(site=='Blodgett'){
+  postTrt_mort <- get_cumul_mort(allmort[allmort$start_yr>trt_dates[[site]][['Thin']][[1]] & 
+                       allmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
+                         allmort$Treatment %in% c('Thin', 'None'),],
+                       group_cols = c('Treatment'))
+  postTrt_mort$Timeframe <- 'Post-treatment'
+  
+  out <- rbind(allmort, study_mort, postTrt_mort)
+
+}else if(site == 'Teakettle'){
+  postTrt_mort <- get_cumul_mort(allmort[allmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
+                                         group_cols = c('Treatment'))
+  postTrt_mort$Timeframe <- 'Post-treatment'
+  out <- bind_rows(allmort, study_mort, postTrt_mort)
+}else{
+  out <- rbind(allmort, study_mort)
+}
+
+out$Category <- 'All trees'
+
+
+```
+
+
+```{r mort_pft}
+pftmort <- data.frame()
+
+
+for(y in 2:length(invntry_dates[[site]])){
     ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
     print(ivl)
     fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
                  ivl, '.csv')
     raw <- read.csv(fn)
-
-    if(site=='STEF' & y == 2){
-      m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$Treatment %in% c('None', 'Thin'),], 
-                           status_col = 'Status', 
+    
+    for(p in pfts_in_mort){
+      print(p)
+      
+      # print(raw[raw$DBH_BA >= 15 & raw$PFT_simple==p & raw$status==dead_ind,] %>% count(comp))
+      # print(raw[raw$DBH_BA >= 15 & raw$PFT_simple==p & raw$status==dead_ind,] %>% count(Treatment))
+      
+      if(site=='Teakettle'){
+        t1 <- invntry_dates[[site]][y-1]
+        t2 <- invntry_dates[[site]][y]
+        raw <- get_unit_years(raw, t1 = t1, t2 = t2)
+        
+        m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$PFT_simple==p,], status_col=status_col, 
                          dead_ind = dead_ind, 
-                         t1 = invntry_dates[[site]][y-1],
-                         t2 = invntry_dates[[site]][y],
-                         rndm_fx = 'Unit')
-    }else{
-      m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15,], status_col=status_col, 
-                         dead_ind = dead_ind, 
-                         t1 = invntry_dates[[site]][y-1],
-                         t2 = invntry_dates[[site]][y], 
                          rndm_fx = rndm_fx)
+        
+        for(trt in unique(m$Treatment)){
+          m$start_yr[m$Treatment==trt] <- mean(raw$Mort_y1[raw$Treatment==trt])
+          m$end_yr[m$Treatment==trt] <- mean(raw$Mort_y2[raw$Treatment==trt])
+        }
+        
+        m$Category <- p
+      
+        pftmort <- rbind(pftmort, m)
+      }else{
+        
+        m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$PFT_simple==p,], status_col=status_col, 
+                           dead_ind = dead_ind, 
+                           rndm_fx = rndm_fx)
+        
+        m <- calculate_simple_diff(m, 
+                                   compare_column = 'Treatment',
+                                   ref = 'None',
+                                   out_col = 'prob')
+        
+        m <- calculate_pct_diff(m, 
+                                   compare_column = 'Treatment',
+                                   ref = 'None',
+                                   out_col = 'prob')
+          
+        m$start_yr <- invntry_dates[[site]][y-1]
+        m$end_yr <- invntry_dates[[site]][y]
+        
+        m$Category <- p
+        
+        pftmort <- rbind(pftmort, m)
+      }
+      }
     }
-    
-    allmort <- rbind(allmort, m)
-  }
-}else{
-  timeframe_lookup <- ba_by_unit %>% 
-    group_by(Unit, DBH_timeframe) %>%
-    summarize(
-      Year = mean(Year)
-    )
+
+pftmort <- pftmort[,!(colnames(pftmort) %in% c('df', 'asymp.LCL', 'asymp.UCL'))]
+pftmort$Timeframe <- 'Period mortality'
+
+### Get cumulative mortality for entire period
+pftmort$survival = 1 - pftmort$prob
+
+pftstudy_mort <- get_cumul_mort(pftmort, 
+                             group_cols = c('Treatment', 'Category'))
+
+if(site=='Blodgett'){
+  postTrt_pftmort <- get_cumul_mort(pftmort[pftmort$start_yr>trt_dates[[site]][['Thin']][[1]] & 
+                       pftmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
+                         pftmort$Treatment %in% c('Thin', 'None'),],
+                       group_cols = c('Treatment', 'Category'))
+  postTrt_pft_diffs <- vector('list', length = length(pfts_in_mort))
   
-  for(ivl in c('DBH_Post-DBH_10Post', 'DBH_10Post-DBH_15Post')){
-    t1 <- unlist(strsplit(ivl, '-'))[1]
-    t2 <- unlist(strsplit(ivl, '-'))[2]
+}else if(site == 'Teakettle'){
+  postTrt_pftmort <- get_cumul_mort(pftmort[pftmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
+                       group_cols = c('Treatment', 'Category'))
+  postTrt_pft_diffs <- vector('list', length = length(pfts_in_mort))
+}
+
+pft_diffs <- vector('list', length = 4)
+
+for(p in pfts_in_mort){
+  temp <- calculate_simple_diff(
+    pftstudy_mort[pftstudy_mort$Category==p,], 
+    compare_column = 'Treatment',
+    ref = 'None',
+    out_col = 'prob'
+  )
+  
+  pft_diffs[[p]] <- calculate_pct_diff(
+    temp,
+    compare_column = 'Treatment',
+    ref = 'None',
+    out_col = 'prob'
+  )
+  
+  if(site!='STEF'){
+    temp2 <- calculate_simple_diff(
+      postTrt_pftmort[postTrt_pftmort$Category==p,], 
+      compare_column = 'Treatment',
+      ref = 'None',
+      out_col = 'prob'
+    )
     
-    new <- get_teakettle_mort(t1, t2)
-    new$DBH_timeframe <- t2
-    
-    allmort <- rbind(allmort, new)
+    postTrt_pft_diffs[[p]] <- calculate_pct_diff(
+      temp2,
+      compare_column = 'Treatment',
+      ref = 'None',
+      out_col = 'prob'
+    )
   }
-  allmort <- allmort[,c('Treatment', 'rate', 'SE', 'asymp.LCL', 'asymp.UCL', 'PFT', 'calculationInterval', 'percent_diff', 'se_percent_diff', 'DBH_timeframe')]
-  colnames(allmort)[colnames(allmort)=='rate'] = 'prob'
+}
+
+pftstudy_mort <- bind_rows(pft_diffs)
+pftstudy_mort$Timeframe <- 'Study mortality'
+
+if(site!='STEF'){
+  postTrt_pftmort <- bind_rows(postTrt_pft_diffs)
+  postTrt_pftmort$Timeframe <- 'Post-treatment'
+  
+  out <- bind_rows(out, pftmort, pftstudy_mort, postTrt_pftmort)
+}else{
+  out <- rbind(out, pftmort, pftstudy_mort)
+}
+```
+
+```{r mort_small}
+smallmort <- data.frame()
+size_thresh <- 60
+cat_nm <- paste0('<', size_thresh, 'cm')
+
+
+for(y in 2:length(invntry_dates[[site]])){
+    ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
+    print(ivl)
+    fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
+                 ivl, '.csv')
+    raw <- read.csv(fn)
+    
+    if(site=='Teakettle'){
+      t1 <- invntry_dates[[site]][y-1]
+      t2 <- invntry_dates[[site]][y]
+      raw <- get_unit_years(raw, t1 = t1, t2 = t2)
+      
+      m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$DBH_BA<size_thresh,], status_col=status_col, 
+                       dead_ind = dead_ind, 
+                       rndm_fx = rndm_fx)
+      
+      for(trt in unique(m$Treatment)){
+        m$start_yr[m$Treatment==trt] <- mean(raw$Mort_y1[raw$Treatment==trt])
+        m$end_yr[m$Treatment==trt] <- mean(raw$Mort_y2[raw$Treatment==trt])
+      }
+      
+      }else{
+        m <- make_mrtlty_tbl(raw[raw$DBH_BA >= 15 & raw$DBH_BA<size_thresh,], status_col=status_col, 
+                           dead_ind = dead_ind, 
+                           rndm_fx = rndm_fx)
+        
+        m <- calculate_simple_diff(m, 
+                                   compare_column = 'Treatment',
+                                   ref = 'None',
+                                   out_col = 'prob')
+        
+        m <- calculate_pct_diff(m, 
+                                   compare_column = 'Treatment',
+                                   ref = 'None',
+                                   out_col = 'prob')
+          
+        m$start_yr <- invntry_dates[[site]][y-1]
+        m$end_yr <- invntry_dates[[site]][y]
+    }
+    m$Category <- cat_nm
+    
+    smallmort <- rbind(smallmort, m)
+  }
+
+smallmort <- smallmort[,!(colnames(smallmort) %in% c('df', 'asymp.LCL', 'asymp.UCL'))]
+smallmort$Timeframe <- 'Period mortality'
+
+### Get cumulative mortality for entire period
+smallmort$survival = 1 - smallmort$prob
+
+study_smmort <- get_cumul_mort(smallmort, 
+                             group_cols = c('Treatment'))
+study_smmort$Timeframe <- 'Study mortality'
+study_smmort$Category <- cat_nm
+
+if(site=='Blodgett'){
+  postTrt_smmort <- get_cumul_mort(smallmort[smallmort$start_yr>trt_dates[[site]][['Thin']][[1]] & 
+                       smallmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
+                         smallmort$Treatment %in% c('Thin', 'None'),],
+                       group_cols = c('Treatment'))
+  postTrt_smmort$Timeframe <- 'Post-treatment'
+  postTrt_smmort$Category <- cat_nm
+  
+  out <- rbind(out, smallmort, study_smmort, postTrt_smmort)
+  }else if(site == 'Teakettle'){
+    postTrt_smmort <- get_cumul_mort(smallmort[smallmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
+                       group_cols = c('Treatment'))
+    postTrt_smmort$Timeframe <- 'Post-treatment'
+    postTrt_smmort$Category <- cat_nm
+    
+    out <- bind_rows(out, smallmort, study_smmort, postTrt_smmort)
+    }else{
+      out <- rbind(out, smallmort, study_smmort)
+      }
+
+
+```
+
+```{r}
+lgmort <- data.frame()
+cat_nm <- paste0('>', size_thresh, 'cm')
+
+
+for(y in 2:length(invntry_dates[[site]])){
+    ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
+    print(ivl)
+    fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
+                 ivl, '.csv')
+    raw <- read.csv(fn)
+    
+    if(site=='Teakettle'){
+      t1 <- invntry_dates[[site]][y-1]
+      t2 <- invntry_dates[[site]][y]
+      raw <- get_unit_years(raw, t1 = t1, t2 = t2)
+      
+      m <- make_mrtlty_tbl(raw[raw$DBH_BA>=size_thresh,], status_col=status_col, 
+                       dead_ind = dead_ind, 
+                       rndm_fx = rndm_fx)
+      
+      for(trt in unique(m$Treatment)){
+        m$start_yr[m$Treatment==trt] <- mean(raw$Mort_y1[raw$Treatment==trt])
+        m$end_yr[m$Treatment==trt] <- mean(raw$Mort_y2[raw$Treatment==trt])
+      }
+      
+      }else{
+        m <- make_mrtlty_tbl(raw[raw$DBH_BA>=size_thresh,], status_col=status_col, 
+                       dead_ind = dead_ind, 
+                       rndm_fx = rndm_fx)
+    
+        m <- calculate_simple_diff(m, 
+                                   compare_column = 'Treatment',
+                                   ref = 'None',
+                                   out_col = 'prob')
+        
+        m <- calculate_pct_diff(m, 
+                                   compare_column = 'Treatment',
+                                   ref = 'None',
+                                   out_col = 'prob')
+          
+        m$start_yr <- invntry_dates[[site]][y-1]
+        m$end_yr <- invntry_dates[[site]][y]
+}    
+    m$Category <- cat_nm
+    
+    lgmort <- rbind(lgmort, m)
+  }
+
+lgmort <- lgmort[,!(colnames(lgmort) %in% c('df', 'asymp.LCL', 'asymp.UCL'))]
+lgmort$Timeframe <- 'Period mortality'
+
+### Get cumulative mortality for entire period
+lgmort$survival = 1 - lgmort$prob
+
+study_lgmort <- get_cumul_mort(lgmort, 
+                             group_cols = c('Treatment'))
+study_lgmort$Timeframe <- 'Study mortality'
+study_lgmort$Category <- cat_nm
+
+if(site=='Blodgett'){
+  postTrt_lgmort <- get_cumul_mort(lgmort[lgmort$start_yr>trt_dates[[site]][['Thin']][[1]] & 
+                       lgmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
+                         lgmort$Treatment %in% c('Thin', 'None'),],
+                       group_cols = c('Treatment'))
+  postTrt_lgmort$Timeframe <- 'Post-treatment'
+  postTrt_lgmort$Category <- cat_nm
+  
+  out <- rbind(out, lgmort, study_lgmort, postTrt_lgmort)
+}else if(site == 'Teakettle'){
+  postTrt_lgmort <- get_cumul_mort(lgmort[lgmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
+                       group_cols = c('Treatment'))
+  postTrt_lgmort$Timeframe <- 'Post-treatment'
+  postTrt_lgmort$Category <- cat_nm
+  
+  out <- bind_rows(out, lgmort, study_lgmort, postTrt_lgmort)
+}else{
+  out <- rbind(out, lgmort, study_lgmort)
 }
 
 ```
+
+
+```{r}
+
+out$IncludesPreTreat <- 'No'
+
+if(site=='STEF'){
+  out[out$Treatment == 'Burn' & out$start_yr==2012, 'IncludesPreTreat'] = 'Yes'
+}else if(site =='Blodgett'){
+  out[out$start_yr==2001, 'IncludesPreTreat'] = 'Yes'
+}else if(site == 'Teakettle'){
+  out[out$start_yr <= 2001, 'IncludesPreTreat'] = 'Yes'
+}
+
+write.csv(out, file.path(paste0('../data/Benchmarking_data/Benchmarks/mortality_', site, '.csv')), row.names=FALSE)
+```
+
 
 ```{r cntrl_mort}
 ggplot(allmort[allmort$Treatment == 'None',],

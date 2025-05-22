@@ -1,14 +1,14 @@
 ﻿variable,description,variable type,unit
-Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control = control.,string,NA
-prob,Probability of mortality of trees >= 15cm DBH during the given calculation interval. This is not an annualized mortality; it is the total mortality for the number of years given in the calculation interval. ,float,NA
+Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control or None = control.,string,NA
+prob,Probability of mortality of trees >= 15cm DBH during the given calculation interval. This is not an annualized mortality; it is the estimated cumulative mortality between the start and end year. ,float,NA
 SE,Standard error of probability of mortality over calculation interval,float,NA
-annual_mortality,Annualized (per year) mortality rate of trees >= 15cm during the calculation interval.,float,NA
-SE_annual,Standard error of the annualized probability of mortality.,float,NA
-lower95CL,Lower bound of 95% confidence interval of annualized mortality,float,NA
-upper95CL,Lower bound of 95% confidence interval of annualized mortality,float,NA
-PFT,"Plant functional type; includes cedar, fir, pine, and oak",string,NA
-calculationInterval,Period of time (and number of years covered by that period) over which mortality is calculated,string,NA
-diff,"Difference between mortality in the Treatment relative to mortality in the Control. This is a simple difference, not a percent difference.",float,NA
-se_diff,Standard error of the difference between Treatment and Control mortality,float,NA
-lower95_diff,Lower bound of 95% confidence interval of difference between Treatment and Control mortality,float,NA
-upper95_diff,Upper bound of 95% confidence interval of difference between Treatment and Control mortality,float,NA
+start_yr,"First year of the calculation interval. For Teakettle, if this number is a decimal, it indicates that the plots within a given Treatment were inventoried in different years. The value is the average year in which a tree within the treatment was inventoried.",float,NA
+end_yr,"Last year of the calculation interval. For Teakettle, if this number is a decimal, it indicates that the plots within a given Treatment were inventoried in different years. The value is the average year in which a tree within the treatment was inventoried.",float,NA
+Timeframe,"Period of time over which mortality was calculated. ""Period mortality"" = cumulative mortality during a given measurement interval; ""Study mortality"" = cumulative mortality from the first through the last inventories in the study; ""Post-treatment""  = cumulative mortality from the first post-treatment inventory until the last inventory of the study. ",string,NA
+survival,"Probability of survival, i.e., 1-prob.",float,NA
+diff,Simple difference (not percent difference) between mortality in the Treatment relative to mortality in the Control.,float,NA
+se_diff,Standard error of the simple difference between Treatment and Control mortality,float,NA
+percent_diff,Percent difference of  mortality in the Treatment relative to mortality in the Control.,float,NA
+se_percent_diff,Standard error of the percent  difference between Treatment and Control mortality,float,NA
+Category,"Indicates any filtering applied to the data (for example, to calculate mortality for a specific PFT or size class).",string,NA
+IncludesPreTreatment,Yes or no; does the estimate include pre-treatment inventory data?,string,NA
