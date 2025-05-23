@@ -1,0 +1,28 @@
+﻿variable,description,variable type,unit
+DBH_timeframe,"Identifies whether the measurement occurs pre-treatment (""Pre"") or post-treatment (""Post"").",string,NA
+PrePost,"Average stem density of trees with DBH >= 15cm. For pre-treatment measurements, this value is taken from a single point in time. For post-treatment, this is a weighted average, in which the mean value during each measurement interval is weighted by the number of years in the measurement interval.",float,stems/ha
+SE_PrePost,"Standard error of the value in the ""PrePost"" column.",float,stems/ha
+PrePost_lower.CL,"Lower bound of 95% confidence interval of the value in the ""PrePost"" column.",float,stems/ha
+PrePost_upper.CL,"Upper bound of 95% confidence interval of the value in the ""PrePost"" column.",float,stems/ha
+PrePost_pct_diff,Average percent difference between the pre-treatment and post-treatment estimates. ,float,%
+SE_PrePost_pct_diff,Standard error of average percent difference between pre- and post-treatment measurements.,float,%
+Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control = control.,string,NA
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
