@@ -94,6 +94,9 @@ if(site=='Blodgett'){
   ref_year <- '2001'
 }else if (site=='STEF'){
   ref_year <- 2009
+  
+  # Load 2009 data, which was digitized from Knapp et al. 2017
+  stef_pre <- read.csv('../data/Benchmarking_data/STEF/preThin_metrics.csv')
 }else if(site == 'Teakettle'){
   ref_year <- 2001 
 }
@@ -317,7 +320,7 @@ clean_emm_tbl <- function(df, var, prfx){
   
   return(out)
 }
-
+ 
 
 
 # wghtd_se <- function(df, col_to_weight, weight_col){
@@ -404,13 +407,29 @@ prepost <- rbind(pre, post)
 prepost_by_trt <- vector('list', length = 3)
 
 if(site=='STEF'){
-  prepost_out <- make_emm_df(prepost[prepost$Treatment=='Burn',],
+  ## Get pre-post differences for burned units
+  prepost_burn <- make_emm_df(prepost[prepost$Treatment=='Burn',],
                                     compare_column = 'DBH_timeframe',
                                     var = 'var',
                                     ref = 'Pre',
                                     rndm_fx = 'Unit')
   
-  prepost_out$Treatment <- 'Burn'
+  prepost_burn$Treatment <- 'Burn'
+  
+  ## Get pre-post differences for thinned units
+  stef_thin <- prepost[prepost$Treatment=='Thin',]
+  mean_thin_post <- mean(stef_thin$var)
+  se_thin_post <- sd(stef_thin$var)/sqrt(length(stef_thin$var))
+  
+  ## Pre
+  thin_pre <- stef_pre[stef_pre$Metric=='Basal area' & stef_pre$Treatment!='None',]
+  mean_thin_pre <- mean(thin_pre$value)
+  se_thin_pre <- sqrt((thin_pre$SE[1]^2 + thin_pre$SE[2]^2)/2)
+  
+  prepost_thin = data.frame('DBH_timeframe'=c('Pre', 'Post'), "emmean" = c(mean_thin_pre, mean_thin_post), 'SE' = c(se_thin_pre, se_thin_post), "Treatment" = 'Thin')
+  prepost_thin = calculate_pct_diff(prepost_thin, 'DBH_timeframe', 'Pre', 'emmean')
+  
+  prepost_out <- bind_rows(prepost_burn, prepost_thin)
   
 }else{
   for(trt in c('Burn', 'Thin', 'Burn+Thin')){
@@ -1018,13 +1037,28 @@ prepost <- rbind(pre, post)
 prepost_by_trt <- vector('list', length = 3)
 
 if(site=='STEF'){
-  prepost_out <- make_emm_df(prepost[prepost$Treatment=='Burn',],
+  prepost_burn <- make_emm_df(prepost[prepost$Treatment=='Burn',],
                                     compare_column = 'DBH_timeframe',
                                     var = 'var',
                                     ref = 'Pre',
                                     rndm_fx = 'Unit')
   
-  prepost_out$Treatment <- 'Burn'
+  prepost_burn$Treatment <- 'Burn'
+  
+  ## Get pre-post differences for thinned units
+  stef_thin <- prepost[prepost$Treatment=='Thin',]
+  mean_thin_post <- mean(stef_thin$var)
+  se_thin_post <- sd(stef_thin$var)/sqrt(length(stef_thin$var))
+  
+  ## Pre
+  thin_pre <- stef_pre[stef_pre$Metric=='Stand density' & stef_pre$Treatment!='None',]
+  mean_thin_pre <- mean(thin_pre$value)
+  se_thin_pre <- sqrt((thin_pre$SE[1]^2 + thin_pre$SE[2]^2)/2)
+  
+  prepost_thin = data.frame('DBH_timeframe'=c('Pre', 'Post'), "emmean" = c(mean_thin_pre, mean_thin_post), 'SE' = c(se_thin_pre, se_thin_post), "Treatment" = 'Thin')
+  prepost_thin = calculate_pct_diff(prepost_thin, 'DBH_timeframe', 'Pre', 'emmean')
+  
+  prepost_out <- bind_rows(prepost_burn, prepost_thin)
   
 }else{
   for(trt in c('Burn', 'Thin', 'Burn+Thin')){

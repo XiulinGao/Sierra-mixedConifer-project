@@ -1,0 +1,10 @@
+﻿Treatment,Year,Metric,value ,SE,unit
+None,2009,Basal area,64.9,4.1,m2/ha
+Thin (HV),2009,Basal area,68.9,4.4,m2/ha
+Thin (LV),2009,Basal area,67,4.3,m2/ha
+None,2009,Fraction pine,0.189,0.023,%
+Thin (HV),2009,Fraction pine,0.193,0.023,%
+Thin (LV),2009,Fraction pine,0.215,0.026,%
+None,2009,Stand density,785,57.5,stems/ha
+Thin (HV),2009,Stand density,718.1,52.6,stems/ha
+Thin (LV),2009,Stand density,597.3,43.7,stems/ha
