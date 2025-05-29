@@ -308,7 +308,7 @@ add_yr_range <- function(df, time_tbl){
 
 clean_emm_tbl <- function(df, var, prfx){
   ## Remove "df" column
-  out <- subset(df, select=-c(df))
+  out <- df[, colnames(df)!='df']
   
   ## Rename columns
   colnames(out)[colnames(out)=='emmean'] = paste0(prfx)
@@ -1271,6 +1271,24 @@ if(site == 'Teakettle'){
   sizeDist_by_unit <- sizeDist_by_unit[!sizeDist_by_unit$DBH_timeframe %in% c('DBH_2008'),]
 }
 
+## Load data with custom bin sizes
+if(site=='STEF'){
+  cstm_sizeDist = read.csv('../data/Benchmarking_data/STEF/custom_size_dist_by_unit_year.csv')
+  cstm_sizeDist$Size_class <- factor(cstm_sizeDist$Size_class, unique(cstm_sizeDist$Size_class))
+  
+  all_cust_avgs <- data.frame()
+  for(s in unique(cstm_sizeDist$Size_class)){
+    cust_df <- cstm_sizeDist[cstm_sizeDist$Size_class==s,]
+    
+    cust_new <- compute_avgs_over_intervals(cust_df, var = 'TPH')
+    
+    cust_new$Size_class <- s
+    
+    all_cust_avgs <- rbind(all_cust_avgs, cust_new)
+  }
+}
+
+
 ## Compute average PFT BA over each measurement interval
 all_size_avgs <- data.frame()
 
@@ -1301,7 +1319,7 @@ if(site == 'Teakettle'){
         group_by(Unit, Treatment, Size_class) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
     }else if(site=='STEF'){
-      avg_thin <- all_size_avgs[all_size_avgs$Treatment=='Thin',] %>%
+      avg_thin <- all_cust_avgs[all_cust_avgs$Treatment=='Thin',] %>%
         group_by(Unit, Treatment, Size_class) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
       
@@ -1327,14 +1345,21 @@ for(u in unique(sizeDist_by_unit$Unit)){
 
 ```{r prepost_size}
 
+get_mean_se <- function(df){
+  return(sqrt((df$SE[1]^2 + df$SE[2]^2)/2))
+}
+
+get_se <- function(vec){
+  return(sd(vec)/sqrt(length(vec)))
+}
+
 ### Compare pre- to post-treatment
 if(site=='Teakettle'){
   pre <- sizeDist_by_unit[sizeDist_by_unit$DBH_timeframe=='DBH_Pre',]
-}else if(site == 'STEF'){
-  pre <- sizeDist_by_unit[sizeDist_by_unit$Treatment == 'Burn' & 
-                            sizeDist_by_unit$Year==2012,]
-}else if(site == 'Blodgett'){
+  }else if(site == 'Blodgett'){
   pre <- sizeDist_by_unit[sizeDist_by_unit$Year==ref_year,]
+  }else if(site == 'STEF'){
+  pre <- sizeDist_by_unit[sizeDist_by_unit$Treatment == 'Burn' & sizeDist_by_unit$Year==2012,]
 }
 
 pre$DBH_timeframe <- 'Pre'
@@ -1350,24 +1375,64 @@ prepost <- rbind(pre, post)
 prepost_by_size <- data.frame()
 
 if(site == 'STEF'){
-  for(s in unique(prepost$Size_class)){
-    prepost_out <- make_emm_df(prepost[prepost$Treatment=='Burn' & prepost$Size_class==s,],
+  ## Pull in digitized data for 2009
+  pre_thin_digitized <- read.csv('../data/Benchmarking_data/STEF/STEF_Thin_digitized.csv')
+  pre_thin_digitized <- pre_thin_digitized[pre_thin_digitized$Metric!='Error',]
+  
+  mean_thin_pre <- pre_thin_digitized %>%
+    group_by(DBH_max) %>%
+    summarise(emmean = mean(TPH),
+              Treatment = 'Thin',
+              DBH_timeframe = 'Pre')
+  
+  mean_thin_pre$SE <- unlist(
+    pre_thin_digitized %>% 
+      group_by(DBH_max) %>%
+      group_map(~ get_mean_se(.x))
+    )
+  
+  colnames(mean_thin_pre)[colnames(mean_thin_pre)=='DBH_max'] = 'Size_class'
+    
+  
+  for(s in unique(prepost[prepost$Treatment=='Burn',]$Size_class)){
+    prepost_burn <- make_emm_df(prepost[prepost$Treatment=='Burn' & prepost$Size_class==s,],
                                       compare_column = 'DBH_timeframe',
                                       var = 'var',
                                       ref = 'Pre',
                                       rndm_fx = 'Unit')
     
-    prepost_benchmarks <- calculate_simple_diff(prepost_out,
+    prepost_benchmarks <- calculate_simple_diff(prepost_burn,
                                             compare_column = 'DBH_timeframe',
                                             ref = 'Pre',
                                             out_col = 'emmean')
     
-    prepost_out$Treatment <- 'Burn'
+    prepost_burn$Treatment <- 'Burn'
     
-    prepost_out$Size_class <- s
+    prepost_burn$Size_class <- s
     
-    prepost_by_size <- rbind(prepost_by_size, prepost_out)
+    prepost_by_size <- rbind(prepost_by_size, prepost_burn)
   }
+  
+  ## Get pre-post differences for thinned units
+  stef_thin <- prepost[prepost$Treatment=='Thin',]
+  
+  mean_post_thin <- stef_thin %>% 
+    group_by(Size_class) %>%
+    summarise(SE = get_se(var),
+              emmean = mean(var),
+              Treatment = 'Thin',
+              DBH_timeframe = 'Post')
+  
+  mean_post_thin$Size_class <- as.numeric(as.character(mean_post_thin$Size_class))
+  
+  prepost_thin = bind_rows(mean_thin_pre, mean_post_thin)
+  
+  prepost_thin <- prepost_thin %>% 
+    group_by(Size_class) %>% 
+    group_modify(~ calculate_pct_diff(.x, 'DBH_timeframe', 'Pre', 'emmean'))
+  
+  prepost_thin <- clean_emm_tbl(prepost_thin, var = 'var', prfx = 'PrePost')
+
   }else{
     for(s in unique(prepost$Size_class)){
       for(trt in c('Burn', 'Thin', 'Burn+Thin')){
@@ -1397,6 +1462,11 @@ if(site == 'STEF'){
 
     
 prepost_out <- clean_emm_tbl(prepost_by_size, var = 'var', 'PrePost')
+
+if(site == 'STEF'){
+  prepost_out$Size_class <- as.numeric(as.character(prepost_out$Size_class))
+  prepost_out <- bind_rows(prepost_out, prepost_thin)
+}
 
 write.csv(prepost_out, file.path(paste0('../data/Benchmarking_data/Benchmarks/prepost_size_dist_', site, '.csv')), row.names=FALSE)
 
