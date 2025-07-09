@@ -1,5 +1,6 @@
 ﻿variable,description,variable type,unit
 PFT,"Plant functional type; includes cedar, fir, yellow_pine, and white_pine (sugar pine)",string,NA
+DBH,Diameter at breast height,integer,cm
 Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control = control.,string,NA
 Multiplier_mean,"Average treatment effect on growth, expressed as a multiplier on growth of given PFT (of any size) in the control plot",float,NA
 Multiplier_low95CI,Lower bound of 95% credible interval of mean growth effect multiplier,float,NA
