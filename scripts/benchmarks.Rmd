@@ -86,7 +86,7 @@ library(stringr)
 library(dplyr)
 
 ## Specify site: Blodgett, STEF, or Teakettle
-site <- 'Teakettle'
+site <- 'STEF'
 
 ### Set reference year
 ## The reference year is the first year of measurement, unless otherwise indicated
@@ -1738,21 +1738,22 @@ We provide growth benchmarks disaggregated by PFT and tree size (15, 30, 45, 60,
 
 ## Read in growth parameters estimated via state-space models (Katz et al.)
 growth_params <- read.csv(file.path('..', 'data', 'Benchmarking_data', 
-                                    'Growth_all_sites', 'params_by_site_dbh_2025-07-08.csv'))
+                                    'Growth_all_sites', 'params_by_site_dbh_2025-04-25.csv'))
 
 ## Adjust data nomenclature
 if(site=='Blodgett'){
-  site_df <- growth_params[growth_params$Site=='Blodgett_FFS15',]
+  site_df <- growth_params[growth_params$site=='Blodgett_FFS',]
 }else if(site == 'STEF'){
-  site_df <- growth_params[growth_params$Site=='STEF-VDT15',]
-}else if(site=='Teakettle'){
-  site_df <- growth_params[growth_params$Site == 'Teakettle15',]
+  site_df <- growth_params[growth_params$site=='STEF-VDT',]
+}else{
+  site_df <- growth_params[growth_params$site == site,]
 }
 
-site_growth <- site_df[site_df$Treatment=='None',]
+site_growth <- site_df[grep('cntrl_growth', site_df$parameter),]
+site_growth['DBH_cm'] = parse_number(site_growth$parameter)
 
 ## Note that the only uncertainty metric for growth is the 95% credible interval. 
-growth_by_pft_size <- data.frame(PFT = site_growth$PFT, DBH = site_growth$DBH, Mean_cm = exp(site_growth$Mean), low95CI = exp(site_growth$low_ci), high95CI = exp(site_growth$upper_ci))
+growth_by_pft_size <- data.frame(PFT = site_growth$pft, DBH = site_growth$DBH_cm, Mean_cm = exp(site_growth$Mean), low95CI = exp(site_growth$X2.5.), high95CI = exp(site_growth$X97.5.))
 
 write.csv(growth_by_pft_size, file.path(paste0('../data/Benchmarking_data/Benchmarks/growth_by_size_pft_', site, '.csv')), row.names=FALSE)
 
@@ -1763,15 +1764,14 @@ print(growth_by_pft_size)
 ### Treatment effect on tree growth
 Katz et al. estimated growth and treatment effects on a log scale. These results can be quantitatively interpreted as in the following example: if the growth rate of a 75cm DBH cedar in the control is \delta centimeters and the effect of thinning on log growth is 0.53, the predicted growth rate of the same cedar would be e^{0.53}\delta=1.7\delta centimeters if the unit were thinned. Our growth benchmarks for treatment effects on growth are therefore multipliers of growth rate in the Control. 
 ```{r trt_growth}
+trt_fx <- site_df[grep('treat_mean', site_df$parameter),]
+trt_fx <- trt_fx[trt_fx$parameter!='treat_mean[None]',]
 
-trt_fx <- site_df[site_df$Treatment!='None',]
-
-trtmnt_effect_growth_pft <- data.frame(PFT = trt_fx$PFT, 
-                                       DBH = trt_fx$DBH,
-                                       Treatment = trt_fx$Treatment, 
-                                       Multiplier_mean = exp(trt_fx$Mean),
-                                       Multiplier_low95CI = exp(trt_fx$low_ci),
-                                       Multiplier_high95CI = exp(trt_fx$upper_ci)
+trtmnt_effect_growth_pft <- data.frame(PFT = trt_fx$pft, 
+           Treatment = sub(".*\\[([^][]+)].*", "\\1", trt_fx$parameter), 
+           Multiplier_mean = exp(trt_fx$Mean),
+           Multiplier_low95CI = exp(trt_fx$X2.5.),
+           Multiplier_high95CI = exp(trt_fx$X97.5.)
 )
 
 write.csv(trtmnt_effect_growth_pft, file.path(paste0('../data/Benchmarking_data/Benchmarks/growth_effects_', site, '.csv')), row.names=FALSE)
@@ -1826,7 +1826,7 @@ growth_trt_diffs <- ggplot(trtmnt_effect_growth_pft,
         panel.grid.major = element_blank(),
         axis.text.x = element_text(angle=45, hjust = 1))
 
-print(growth_trt_diffs + facet_wrap(~DBH))
+print(growth_trt_diffs)
 ```
 
 ## Benchmark 6: Mortality
