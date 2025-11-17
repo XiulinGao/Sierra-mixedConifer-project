@@ -20,8 +20,11 @@ FRAP_PERIMS        <- "~/Google Drive/My Drive/Sierra-data/fire24_1.gdb"
 SIERRA_AOI_SHP     <- "~/Google Drive/My Drive/Sierra-data/ca_eco_l3/ca_eco_l3.shp"      
 
 MTBS_SEV_DIR       <- "~/Google Drive/My Drive/Sierra-data/MTBS-burn-severity_2001-2021"
+CWC_PATH           <- "~/Google Drive/My Drive/canopy-water-content-0.05d_2000-2018"
+CWC_FILE           <- "~/Google Drive/My Drive/Sierra-data/cwc/CWC-0.05degree-8days-Sierra.grd"
 LANDFIRE_CBD_TIF   <- "~/Google Drive/My Drive/Sierra-data/landfire-fuel/LC22_CBD_220.tif"
 LANDFIRE_CBH_TIF   <- "~/Google Drive/My Drive/Sierra-data/landfire-fuel/LC22_CBH_220.tif"
+CF_PATH            <- "~/Google Drive/My Drive/Sierra-data/landfire-fuel/sierra"
 
 GRIDMET_DIR        <- "~/Google Drive/My Drive/Sierra-data/gridmet"                
 GRIDMET_FILES <- list(                                  
@@ -33,9 +36,7 @@ GRIDMET_FILES <- list(
   vpd  = "vpd_%d.nc"
 )
 
-OUT_CSV   <- "Sierra-fuel-weather-severity-ByFireEvent_2001-2021.csv"
 OUT_PATH  <- "~/Git-repos/Sierra-mixedConifer-project/data"
-FILE_OUT  <- file.path(OUT_PATH, OUT_CSV)
 
 YEARS_RANGE         <- 2001:2001
 PREFIRE_DAYS        <- 30
@@ -95,11 +96,24 @@ severity_prop_class4 <- function(sev_rast, poly) {
   }, progress=FALSE)[[1]]
 }
 
-fuels_mean <- function(cbd, cbh, poly, sev34mask=NULL){
-  r <- c(cbd, cbh); names(r) <- c("CBD","CBH")
-  if (!is.null(sev34mask)) r <- mask(r, sev34mask)
-  out <- exact_extract(r, poly, "mean", progress=FALSE)
-  c(CBD_mean=out$mean.CBD, CBH_mean=out$mean.CBH)
+## extract summary stats for canopy fuel traits 
+## including canopy bulk density and canopy base height,                                
+fuel_stats <- function(fire_poly, cbd_rs, cbh_rs, lf){
+  cbd <- cbd_rs[[lf]]; names(cbd) <- "CBD"
+  cbh <- cbh_rs[[lf]]; names(cbh) <- "CBH"
+  
+  cbd_stats <- exact_extract(cbd, fire_poly, c("mean", "median", "quantile"), quantiles = c(0.9))
+  cbh_stats <- exact_extract(cbh, fire_poly, c("mean", "median", "quantile"), quantiles = c(0.1))
+  
+  df <- data.frame(
+    CBD_mean   = cbd_stats$mean,
+    CBD_median = cbd_stats$median,
+    CBD_q90    = cbd_stats$q90,
+    CBH_mean   = cbh_stats$mean,
+    CBH_median = cbh_stats$median,
+    CBH_q10    = cbh_stats$q10
+  )
+  return(df)  
 }
 
 # gridMET IO
@@ -168,7 +182,33 @@ gm_poly_mean <- function(var, dates_seq, geom, sum_precip = FALSE) {
   }
   
   if (sum_precip) sum(vals, na.rm = TRUE) else mean(vals, na.rm = TRUE)
-}                                  
+}     
+
+## canopy water content mean, median, and quantile extraction
+## over defined dates  
+cwc_extract <- function(cwc_path, geom, dates_seq, fun="mean", quant_val=0.1){
+  cwc_rs <- raster::brick(cwc_path)
+  nam <- names(cwc_rs)
+  ds <- gsub("^X(\\d+)_FMC.*", "\\1", nam)
+  dates <- as.Date(paste0(substr(ds,1,4), "-01-01")) + (as.integer(substr(ds,5,7)) - 1)
+  # select raster layers that are within the passed time window
+  idx <- which(dates %in% dates_seq)
+  if (length(idx) == 0){return(NA_real_)}else{
+    cwc_rs <- terra::rast(cwc_rs)
+    sub_rs <- cwc_rs[[idx]]
+    rs_crs  <- sf::st_crs(terra::crs(sub_rs, proj = TRUE))  # target CRS as sf::crs
+    geom_crs <- sf::st_crs(geom)
+    if (!is.na(geom_crs) && geom_crs != rs_crs) {
+      geom <- sf::st_transform(geom, rs_crs)
+    }
+    cwc_stats <- exactextractr::exact_extract(sub_rs, geom, fun, quantiles = quant_val, progress = FALSE)
+    cwc <- unname(unlist(cwc_stats[1, ])) 
+    cwc <- mean(cwc, na.rm=TRUE)
+    return(cwc)
+  }
+}
+
+
 
 
 # tiny util
@@ -245,15 +285,66 @@ ROWS_PER_FLUSH <- 10
 print(YEARS_TO_RUN)
 
 # -----------------------------
-# Load rasters
+# Load and prep rasters
 # -----------------------------
 msg("Loading LANDFIRE fuels…")
+
+## there are 3 CBD and CBH canopy fuel rasters from landfire being
+## used: LF01, LF19, and LF22. We process these individually by
+## clipping them to Sierra ecoregion and make a raster brick 
+## when extract canopy fuel mean per fire, given the year when
+## fire occurred, we assume: if year <= 2010, we use LF01,
+## if 2010 < year <= 2019, LF19, and year >= 2019 LF22
+## below is just how we process each raster 
+
 cbd <- rast(LANDFIRE_CBD_TIF); cbh <- rast(LANDFIRE_CBH_TIF)
 # convert to the true value by dividing the raw value by 100
-cbd <- cbd/100
-cbh <- cbh/10
 if (crs(cbd) != TARGET_CRS) cbd <- project(cbd, TARGET_CRS, method="average")
 if (crs(cbh) != TARGET_CRS) cbh <- project(cbh, TARGET_CRS, method="average")
+
+# crop and mask canopy fuel to sierra ecoregion only 
+CBD_sierra <- crop(cbd, vect(sierra_fix))
+CBD_sierra <- mask(CBD_sierra, vect(sierra_fix))
+CBH_sierra <- crop(cbh, vect(sierra_fix))
+CBH_sierra <- mask(CBH_sierra, vect(sierra_fix))
+
+# convert to the true value by dividing the raw value by 100 (CBD)
+# or by 10 (CBH)
+CBD_sierra <- CBD_sierra/100
+CBH_sierra <- CBH_sierra/10
+writeRaster(CBD_sierra, filename = file.path(CF_PATH, "cbd_processed_LC22.tif", overwrite = TRUE)
+writeRaster(CBH_sierra, filename = file.path(CF_PATH, "cbh_processed_LC22.tif", overwrite = TRUE)
+
+## read in CBD and CBH rasters as a list and rename
+cbd_flst <- list.files(path=CF_PATH, pattern="cbd_processed")
+cbh_flst <- list.files(path=CF_PATH, pattern="cbh_processed")
+cbd_flst <- file.path(CF_PATH,cbd_flst)
+cbh_flst <- file.path(CF_PATH,cbh_flst)
+print(cbh_flst)
+print(cbd_flst)
+cbd_rs <- lapply(cbd_flst, rast)
+cbh_rs <- lapply(cbh_flst, rast)
+# rename each raster layer
+names(cbd_rs) <- c("lf01","lf19","lf22")
+names(cbh_rs) <- c("lf01","lf19","lf22")
+
+## canopy water content raster prep
+f_lst <- list.files(path=CWC_DIR, pattern=".tif$")
+f_path <- file.path(CWC_DIR, f_lst)
+f_path <- sort(f_path)
+rs_lst <- stack(f_path)
+rs_brk <- raster::brick(rs_lst)
+# clip CWC to sierra region only
+sn_sf <- st_as_sf(sierra_fix)
+sn_sf <- st_transform(sn_sf, crs(rs_brk))
+sn_sp <- as(sn_sf, "Spatial")
+rs_sn <- crop(rs_brk, sn_sp)
+rs_sn <- mask(rs_sn, sn_sp)
+
+## writeout as grd file to preserve original layer name that contains time information
+writeRaster(rs_sn, filename ="~/Google Drive/My Drive/Sierra-data/cwc/CWC-0.05degree-8days-Sierra.grd",
+            overwrite = TRUE)
+
 
 # ========================
 # Process one fire each time
@@ -261,6 +352,9 @@ if (crs(cbh) != TARGET_CRS) cbh <- project(cbh, TARGET_CRS, method="average")
 one_fire <- function(f) {
   geom <- sf::st_geometry(f)
   yr   <- f$YEAR
+  
+  ## determine which landfire product to use for canopy fuel 
+  if(yr <= 2010){lf <- "lf01"}else if(yr > 2010 & yr <= 2019){lf <- "lf19"}else{lf <- "lf22"}
   
   # ---- MTBS severity for this year ----
   sev_file <- mtbs_sev_path(yr)
@@ -276,9 +370,15 @@ one_fire <- function(f) {
     }
   }
   
+  # ---- Fuels ----
   # ---- Fuels (masked or not) ----
-  fuels <- try(fuels_mean(cbd, cbh, geom, sev34mask), silent = TRUE)
-  if (inherits(fuels, "try-error")) fuels <- c(CBD_mean = NA_real_, CBH_mean = NA_real_)
+  fuels <- try(fuel_stats(geom, cbd_rs, cbh_rs, lf), silent = TRUE)
+  if (inherits(fuels, "try-error")) fuels <- c(CBD_mean = NA_real_,
+                                               CBD_median = NA_real_,
+                                               CBD_q90 = NA_real_,
+                                               CBH_mean = NA_real_,
+                                               CBH_median = NA_real_,
+                                               CBH_q10 = NA_real_)
   
   # ---- Windows ----
   start_date <- as.Date(f$start); end_date <- as.Date(f$end)
@@ -287,7 +387,10 @@ one_fire <- function(f) {
   pre_seq <- seq(pre_start, pre_end, by = "1 day")
   dur_seq <- seq(start_date, end_date, by = "1 day")
   
-  # ---- Weather (on-demand gridMET) ----
+  # ---- Weather and Canopy Water Content ----
+  cwc_mean      <- cwc_extract(cwc_path, geom, pre_seq, fun="mean", quant_val=0.1)
+  cwc_median    <- cwc_extract(cwc_path, geom, pre_seq, fun="median", quant_val=0.1)
+  cwc_quan10    <- cwc_extract(cwc_path, geom, pre_seq, fun="quantile", quant_val=0.1)
   pre_tmmx_mean <- gm_get_mean("tmmx", pre_seq, geom)
   pre_tmmn_mean <- gm_get_mean("tmmn", pre_seq, geom)
   pre_rmin_mean <- gm_get_mean("rmin", pre_seq, geom)
@@ -298,22 +401,29 @@ one_fire <- function(f) {
   dur_tmmx_mean <- gm_get_mean("tmmx", dur_seq, geom)
   dur_tmmn_mean <- gm_get_mean("tmmn", dur_seq, geom)
   dur_rmin_mean <- gm_get_mean("rmin", dur_seq, geom)
-  dur_vpd_mean  <- gm_get_mean("vpd", dur_seq, geom)
+  dur_vpd_mean <- gm_get_mean("vpd", dur_seq, geom)
   dur_vs_mean   <- gm_get_mean("vs",   dur_seq, geom)
   dur_pr_sum    <- gm_get_sum_pr(dur_seq, geom)
   
   data.table(
-    FIRE_ID    = if ("FIRE_ID" %in% names(f)) f$FIRE_ID else NA_character_,
-    FIRE_NAME  = if ("FIRE_NAME" %in% names(f)) f$FIRE_NAME else NA_character_,
-    UNIQ_ID    = if("UNIQ_ID" %in% names(f)) f$UNIQ_ID else NA_character_,
-    YEAR       = yr,
-    ACRES      = if ("ACRES" %in% names(f)) f$ACRES else NA_real_,
+    FIRE_ID   = if ("FIRE_ID" %in% names(f)) f$FIRE_ID else NA_character_,
+    FIRE_NAME = if ("FIRE_NAME" %in% names(f)) f$FIRE_NAME else NA_character_,
+    UNIQ_ID = if("UNIQ_ID" %in% names(f)) f$UNIQ_ID else NA_character_,
+    YEAR      = yr,
+    ACRES     = if ("ACRES" %in% names(f)) f$ACRES else NA_real_,
     start_date = start_date,
     end_date   = end_date,
     sev_prop_class4 = as.numeric(sev_prop),
     high_severity_fire = as.integer(!is.na(sev_prop) & sev_prop >= SEV_PROP_THRESH),
     CBD_mean = as.numeric(fuels[["CBD_mean"]]),
+    CBD_median = as.numeric(fuels[["CBD_median"]]),
+    CBD_q90 = as.numeric(fuels[["CBD_q90"]]),
     CBH_mean = as.numeric(fuels[["CBH_mean"]]),
+    CBH_median = as.numeric(fuels[["CBH_median"]]),
+    CBH_q10 = as.numeric(fuels[["CBH_q10"]]),
+    CWC_mean = cwc_mean,
+    CWC_median = cwc_median,
+    CWC_quant10 = cwc_quan10,
     pre_tmmx_mean = pre_tmmx_mean,
     pre_tmmn_mean = pre_tmmn_mean,
     pre_rmin_mean = pre_rmin_mean,
@@ -329,6 +439,7 @@ one_fire <- function(f) {
   )
 }
 
+
 # ========================
 # YEAR-BY-YEAR DRIVER
 # ========================
@@ -338,6 +449,8 @@ for (yr in YEARS_TO_RUN) {
   
   # subset year
   py <- perims[perims$YEAR == yr, ]
+  py <- py |>
+        mutate(UNIQ_ID = paste(FIRE_NAME, FIRE_ID, sep="_"))
   
   # resume: read already-done IDs (if file exists)
   done_ids <- character(0)
@@ -370,6 +483,7 @@ for (yr in YEARS_TO_RUN) {
         start_date = as.Date(NA), end_date = as.Date(NA),
         sev_prop_class4 = NA_real_, high_severity_fire = NA_integer_,
         CBD_mean = NA_real_, CBH_mean = NA_real_,
+        CWC_mean = NA_real_, CWC_median = NA_real_, CWC_quant10 = NA_real_,
         pre_tmmx_mean = NA_real_, pre_tmmn_mean = NA_real_,
         pre_rmin_mean = NA_real_, pre_vpd_mean = NA_real_, pre_vs_mean = NA_real_, pre_pr_sum = NA_real_,
         dur_tmmx_mean = NA_real_, dur_tmmn_mean = NA_real_,
@@ -392,4 +506,5 @@ for (yr in YEARS_TO_RUN) {
   
   message(sprintf("  wrote → %s", out_csv))
 }
+
 
