@@ -1,6 +1,6 @@
 ﻿variable,description,variable type,unit
 Treatment,Name of treatment; Burn = prescribed burn; Thin = mechanical thining; Burn+Thin = both prescribed burn and mechancial thin; Control = control.,string,NA
-Fuel_class,"Fuel classification. Includes Brown's forest floor, 1-hr fuels, 10-hr fuels, 100-hr fuels, and sum of 1-, 10-, and 100-hr fuels",string,NA
+Fuel_class,"Fuel classification. 1-hr fuels, 10-hr fuels, 100-hr fuels, and sum of 1-, 10-,  100-hr, 1000h (R and S), and litter and/or duff  fuels",string,NA
 Year,Year in which fuel load was measured,integer,NA
 Fuel_load,Average fuel load,float,Mg/ha
 SE,Standard error of average fuel load. Not available for Teakettle.,float,Mg/ha

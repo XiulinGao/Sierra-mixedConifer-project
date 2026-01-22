@@ -58,7 +58,8 @@ trt_dates = list(
   
   STEF = list(
     Burn = c(2013),
-    Thin = c(2011)
+    Thin = c(2011),
+    `Burn+Thin` = c(2013)
   ),
   
   Teakettle = list(
@@ -70,9 +71,9 @@ trt_dates = list(
 
 invntry_dates = list(
   Blodgett = c(2001, 2003, 2009, 2016, 2020),
-  STEF = c(2012, 2014, 2016, 2018),
-  Teakettle = c('DBH_Pre', 'DBH_Post', 'DBH_10Post', 'DBH_15Post', 'DBH_1PostRX', 'DBH_2PostRX')
+  STEF = c(2009, 2012, 2014, 2016, 2018),
   # For Teakettle, we do something different
+  Teakettle = c('DBH_Pre', 'DBH_Post', 'DBH_10Post', 'DBH_15Post', 'DBH_1PostRX', 'DBH_2PostRX')
 )
 ```
 
@@ -86,7 +87,7 @@ library(stringr)
 library(dplyr)
 
 ## Specify site: Blodgett, STEF, or Teakettle
-site <- 'Teakettle'
+site <- 'STEF'
 
 ### Set reference year
 ## The reference year is the first year of measurement, unless otherwise indicated
@@ -94,10 +95,7 @@ if(site=='Blodgett'){
   ref_year <- '2001'
 }else if (site=='STEF'){
   ref_year <- 2009
-  
-  # Load 2009 data, which was digitized from Knapp et al. 2017
-  stef_pre <- read.csv('../data/Benchmarking_data/STEF/preThin_metrics.csv')
-}else if(site == 'Teakettle'){
+  }else if(site == 'Teakettle'){
   ref_year <- 2001 
 }
 ```
@@ -330,10 +328,10 @@ clean_emm_tbl <- function(df, var, prfx){
 ```
 
 ## Benchmark 1: Basal Area
-The first benchmark is the overall basal area of the stand. 
+The first benchmark is the total basal area of the stand (considering trees larger than 15 cm DBH). 
 
 ### Absolute basal area and change over time in the Control
-We begin with the Control units and estimate the basal area at each point in time at which field measurements took place. For each measurement date following the initial inventory, we calculate percent change with respect to the initial values. This is because the initial values are the basis for initializing the FATES simulations. For example, in the case of STEF, the percent changes in Control basal area in 2014, 2016, and 2018 all are relative to the level in 2012, the first year for which we have measurements. 
+We begin with the Control units and estimate the basal area at each point in time at which field measurements took place. For each measurement date following the initial inventory, we calculate percent change with respect to the initial values. This is because the initial values are the basis for initializing the FATES simulations. For example, in the case of STEF, the percent changes in Control basal area in 2014, 2016, and 2018 all are relative to the level in 2009, the first year for which we have measurements. 
 
 ```{r avg_ba}
 
@@ -358,12 +356,15 @@ if(site=='Teakettle'){
       group_by(Unit, Treatment) %>%
       summarise(Time_wghtd_avg = weighted.mean(var, nYr))
   }else if(site=='STEF'){
-    avg_thin <- avg_ba_by_unit[avg_ba_by_unit$Treatment=='Thin',] %>%
+    avg_thin <- avg_ba_by_unit[(avg_ba_by_unit$Treatment=='Thin' | 
+                                 avg_ba_by_unit$Treatment == 'None') &
+                                 avg_ba_by_unit$Start_yr!=ref_year,] %>%
       group_by(Unit, Treatment) %>%
       summarise(Time_wghtd_avg = weighted.mean(var, nYr))
     
     avg_burn <- avg_ba_by_unit[avg_ba_by_unit$Start_yr>2013 & 
-                                  avg_ba_by_unit$Treatment=='Burn',] %>%
+                                  (avg_ba_by_unit$Treatment=='Burn' | 
+                                 avg_ba_by_unit$Treatment == 'Burn+Thin'),] %>%
       group_by(Unit, Treatment) %>%
       summarise(Time_wghtd_avg = weighted.mean(var, nYr))
     
@@ -389,7 +390,7 @@ for(u in unique(ba_by_unit$Unit)){
 if(site=='Teakettle'){
   pre <- ba_by_unit[ba_by_unit$DBH_timeframe=='DBH_Pre',]
 }else if(site == 'STEF'){
-  pre <- ba_by_unit[ba_by_unit$Treatment == 'Burn' & ba_by_unit$Year==2012,]
+  pre <- ba_by_unit[ba_by_unit$Year==ref_year,]
 }else if(site == 'Blodgett'){
   pre <- ba_by_unit[ba_by_unit$Year==ref_year,]
 }
@@ -406,46 +407,20 @@ prepost <- rbind(pre, post)
 
 prepost_by_trt <- vector('list', length = 3)
 
-if(site=='STEF'){
-  ## Get pre-post differences for burned units
-  prepost_burn <- make_emm_df(prepost[prepost$Treatment=='Burn',],
-                                    compare_column = 'DBH_timeframe',
-                                    var = 'var',
-                                    ref = 'Pre',
-                                    rndm_fx = 'Unit')
+for(trt in c('Burn', 'Thin', 'Burn+Thin', 'None')){
+  print(trt)
+  prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt,], compare_column = 'DBH_timeframe', 
+                                  var = 'var', 
+                                  ref = 'Pre',
+                                  rndm_fx = 'Unit')
   
-  prepost_burn$Treatment <- 'Burn'
+  prepost_benchmarks$Treatment <- trt
   
-  ## Get pre-post differences for thinned units
-  stef_thin <- prepost[prepost$Treatment=='Thin',]
-  mean_thin_post <- mean(stef_thin$var)
-  se_thin_post <- sd(stef_thin$var)/sqrt(length(stef_thin$var))
-  
-  ## Pre
-  thin_pre <- stef_pre[stef_pre$Metric=='Basal area' & stef_pre$Treatment!='None',]
-  mean_thin_pre <- mean(thin_pre$value)
-  se_thin_pre <- sqrt((thin_pre$SE[1]^2 + thin_pre$SE[2]^2)/2)
-  
-  prepost_thin = data.frame('DBH_timeframe'=c('Pre', 'Post'), "emmean" = c(mean_thin_pre, mean_thin_post), 'SE' = c(se_thin_pre, se_thin_post), "Treatment" = 'Thin')
-  prepost_thin = calculate_pct_diff(prepost_thin, 'DBH_timeframe', 'Pre', 'emmean')
-  
-  prepost_out <- bind_rows(prepost_burn, prepost_thin)
-  
-}else{
-  for(trt in c('Burn', 'Thin', 'Burn+Thin')){
-    prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt,], compare_column = 'DBH_timeframe', 
-                                    var = 'var', 
-                                    ref = 'Pre',
-                                    rndm_fx = 'Unit')
-    
-    prepost_benchmarks$Treatment <- trt
-    
-    prepost_by_trt[[trt]] = prepost_benchmarks
-  
-  }
-  
-  prepost_out <- bind_rows(prepost_by_trt)
+  prepost_by_trt[[trt]] = prepost_benchmarks
+
 }
+
+prepost_out <- bind_rows(prepost_by_trt)
 
 prepost_out <- clean_emm_tbl(prepost_out, var = 'var', 'PrePost')
 
@@ -453,7 +428,7 @@ write.csv(prepost_out, file.path(paste0('../data/Benchmarking_data/Benchmarks/pr
 
 ```
 
-
+(REMOVE OR CHANGE)
 In the output above, the quantitative benchmarks are in the first dataframe returned by the `make_emm_df` function. The "absolute" benchmark is the basal area in each measurement year, as reported by the emmeans column, with uncertainty expressed in terms of the standard error (SE column) or 95% confidence interval (the lower.CL and upper.CL columns). The relative benchmark is the percent change in basal area in each measurement year, relative to the basal area in the initial year, as reported in the percent_diff column, with uncertainty expressed in terms of standard error (se_percent_diff) column or 95% confidence interval (lowerCL_percent_diff and upperCL_percent diff). 
 
 The second output table shows contrasts between the basal area in each year and the control year basal area. This output is intended to support a qualitative check as to whether or not the differences between years are significant. 
@@ -557,7 +532,7 @@ write.csv(ba_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/bas
 ## Visualize absolute basal area over time and across treatments
 ba_means_all_years$xlbl <- paste(round(ba_means_all_years$Start_yr, 1), round(ba_means_all_years$End_yr, 1), sep = '-')
 
-ba_time_plot <- ggplot(ba_means_all_years[ba_means_all_years$Start_yr!=ref_year,],
+ba_time_plot <- ggplot(ba_means_all_years,
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
                   col=Treatment,fill=Treatment))+
   geom_bar(stat="identity", position = 'dodge') +
@@ -576,27 +551,6 @@ ba_time_plot <- ggplot(ba_means_all_years[ba_means_all_years$Start_yr!=ref_year,
   
 print(ba_time_plot)
 
-```
-```{r ba_cntrl_diffs}
-### Deprecated
-# ## Visualize % difference in Control basal area at each measurement year relative to the first measurement
-# ba_cntl_diffs <- ggplot(cntrl_benchmarks[[1]][cntrl_benchmarks[[1]]$Year!=ref_year,],
-#               aes(x=Year, y=percent_diff, ymin=percent_diff - se_percent_diff, ## Can use SE or 95CL
-#                   ymax=percent_diff + se_percent_diff)) + 
-#   
-#   # black line is 0
-#   geom_hline(yintercept = 0, lty = 3) + 
-#   geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
-#   xlab("Year") +
-#   ylab("% difference from reference year basal area") + 
-#   ggtitle(site) +
-# # Styling
-#   theme_minimal(base_size = 14) +
-#   theme(axis.line = element_line(color='black'), 
-#         panel.grid.minor = element_blank(),
-#         panel.grid.major = element_blank())
-#   
-# print(ba_cntl_diffs)
 ```
 
 
@@ -689,12 +643,15 @@ if(site == 'Teakettle'){
         group_by(Unit, Treatment, PFT) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
     }else if(site=='STEF'){
-      avg_thin <- all_pft_avgs[all_pft_avgs$Treatment=='Thin',] %>%
+      avg_thin <- all_pft_avgs[(all_pft_avgs$Treatment=='Thin' | 
+                                 all_pft_avgs$Treatment == 'None') &
+                                 all_pft_avgs$Start_yr!=ref_year,] %>%
         group_by(Unit, Treatment, PFT) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
       
       avg_burn <- all_pft_avgs[all_pft_avgs$Start_yr>2013 & 
-                                    all_pft_avgs$Treatment=='Burn',] %>%
+                                    (all_pft_avgs$Treatment=='Burn' |
+                                       all_pft_avgs$Treatment=='Burn+Thin'),] %>%
         group_by(Unit, Treatment, PFT) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
       
@@ -716,7 +673,7 @@ for(u in unique(pft_fracs$Unit)){
 if(site=='Teakettle'){
   pre <- pft_fracs[pft_fracs$DBH_timeframe=='DBH_Pre',]
 }else if(site == 'STEF'){
-  pre <- pft_fracs[pft_fracs$Treatment == 'Burn' & pft_fracs$Year==2012,]
+   pre <- pft_fracs[pft_fracs$Year==ref_year,]
 }else if(site == 'Blodgett'){
   pre <- pft_fracs[pft_fracs$Year==ref_year,]
 }
@@ -733,40 +690,25 @@ prepost <- rbind(pre, post)
 
 prepost_by_pft <- data.frame()
 
-if(site == 'STEF'){
   for(p in c('cedar', 'fir', 'pine', 'oak')){
-    prepost_out <- make_emm_df(prepost[prepost$Treatment=='Burn' & prepost$PFT==p,],
-                                      compare_column = 'DBH_timeframe',
-                                      var = 'var',
-                                      ref = 'Pre',
-                                      rndm_fx = 'Unit')
-    
-    prepost_out$Treatment <- 'Burn'
-    
-    prepost_out$PFT <- p
-    
-    prepost_by_pft <- rbind(prepost_by_pft, prepost_out)
+    for(trt in c('Burn', 'Thin', 'Burn+Thin', 'None')){
+      print(paste(p, trt, sep = ' '))
+      if(sum(prepost$var[prepost$Treatment==trt
+                         & prepost$PFT==p])!=0){
+        prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt
+                                                  & prepost$PFT==p,], 
+                                          compare_column = 'DBH_timeframe', 
+                                          var = 'var', 
+                                          ref = 'Pre',
+                                          rndm_fx = 'Unit')
+        
+        prepost_benchmarks$Treatment <- trt
+        
+        prepost_benchmarks$PFT <- p
+        
+        prepost_by_pft <- rbind(prepost_by_pft, prepost_benchmarks)
+      }
   }
-  }else{
-    for(p in c('cedar', 'fir', 'pine', 'oak')){
-      for(trt in c('Burn', 'Thin', 'Burn+Thin')){
-        if(sum(prepost$var[prepost$Treatment==trt
-                           & prepost$PFT==p])!=0){
-          prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt
-                                                    & prepost$PFT==p,], 
-                                            compare_column = 'DBH_timeframe', 
-                                            var = 'var', 
-                                            ref = 'Pre',
-                                            rndm_fx = 'Unit')
-          
-          prepost_benchmarks$Treatment <- trt
-          
-          prepost_benchmarks$PFT <- p
-          
-          prepost_by_pft <- rbind(prepost_by_pft, prepost_benchmarks)
-        }
-    }
-    }
   }
 
     
@@ -901,7 +843,7 @@ pft_summary
 ## Visualize absolute basal area over time and across treatments
 pft_means_all_years$xlbl <- paste(round(pft_means_all_years$Start_yr, 1), round(pft_means_all_years$End_yr, 1), sep = '-')
 
-pft_time_plot <- ggplot(pft_means_all_years[pft_means_all_years$Start_yr!=ref_year,],
+pft_time_plot <- ggplot(pft_means_all_years,
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
                   fill=PFT))+
   geom_bar(stat="identity") +
@@ -987,12 +929,15 @@ if(site == 'Teakettle'){
       group_by(Unit, Treatment) %>%
       summarise(Time_wghtd_avg = weighted.mean(var, nYr))
     }else if(site=='STEF'){
-      avg_thin <- avg_tph_by_unit[avg_tph_by_unit$Treatment=='Thin',] %>%
+      avg_thin <- avg_tph_by_unit[(avg_tph_by_unit$Treatment=='Thin' | 
+                                     avg_tph_by_unit$Treatment == 'None') &
+                                    avg_tph_by_unit$Start_yr!=ref_year,] %>%
         group_by(Unit, Treatment) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
       
       avg_burn <- avg_tph_by_unit[avg_tph_by_unit$Start_yr>2013 & 
-                                    avg_tph_by_unit$Treatment=='Burn',] %>%
+                                    (avg_tph_by_unit$Treatment=='Burn' |
+                                       avg_tph_by_unit$Treatment == 'Burn+Thin'),] %>%
         group_by(Unit, Treatment) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
       
@@ -1018,9 +963,7 @@ for(u in unique(tph_by_unit$Unit)){
 ### Compare pre- to post-treatment
 if(site=='Teakettle'){
   pre <- tph_by_unit[tph_by_unit$DBH_timeframe=='DBH_Pre',]
-}else if(site == 'STEF'){
-  pre <- tph_by_unit[tph_by_unit$Treatment == 'Burn' & tph_by_unit$Year==2012,]
-}else if(site == 'Blodgett'){
+}else{
   pre <- tph_by_unit[tph_by_unit$Year==ref_year,]
 }
 
@@ -1036,46 +979,22 @@ prepost <- rbind(pre, post)
 
 prepost_by_trt <- vector('list', length = 3)
 
-if(site=='STEF'){
-  prepost_burn <- make_emm_df(prepost[prepost$Treatment=='Burn',],
-                                    compare_column = 'DBH_timeframe',
-                                    var = 'var',
-                                    ref = 'Pre',
-                                    rndm_fx = 'Unit')
+for(trt in c('Burn', 'Thin', 'Burn+Thin', 'None')){
+  print(trt)
+  prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt,], 
+                                    compare_column = 'DBH_timeframe', 
+                                  var = 'var', 
+                                  ref = 'Pre',
+                                  rndm_fx = 'Unit')
   
-  prepost_burn$Treatment <- 'Burn'
+  prepost_benchmarks$Treatment <- trt
   
-  ## Get pre-post differences for thinned units
-  stef_thin <- prepost[prepost$Treatment=='Thin',]
-  mean_thin_post <- mean(stef_thin$var)
-  se_thin_post <- sd(stef_thin$var)/sqrt(length(stef_thin$var))
-  
-  ## Pre
-  thin_pre <- stef_pre[stef_pre$Metric=='Stand density' & stef_pre$Treatment!='None',]
-  mean_thin_pre <- mean(thin_pre$value)
-  se_thin_pre <- sqrt((thin_pre$SE[1]^2 + thin_pre$SE[2]^2)/2)
-  
-  prepost_thin = data.frame('DBH_timeframe'=c('Pre', 'Post'), "emmean" = c(mean_thin_pre, mean_thin_post), 'SE' = c(se_thin_pre, se_thin_post), "Treatment" = 'Thin')
-  prepost_thin = calculate_pct_diff(prepost_thin, 'DBH_timeframe', 'Pre', 'emmean')
-  
-  prepost_out <- bind_rows(prepost_burn, prepost_thin)
-  
-}else{
-  for(trt in c('Burn', 'Thin', 'Burn+Thin')){
-    prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt,], 
-                                      compare_column = 'DBH_timeframe', 
-                                    var = 'var', 
-                                    ref = 'Pre',
-                                    rndm_fx = 'Unit')
-    
-    prepost_benchmarks$Treatment <- trt
-    
-    prepost_by_trt[[trt]] = prepost_benchmarks
-  
-  }
-  
-  prepost_out <- bind_rows(prepost_by_trt)
+  prepost_by_trt[[trt]] = prepost_benchmarks
+
 }
+
+prepost_out <- bind_rows(prepost_by_trt)
+# }
 
 prepost_out <- clean_emm_tbl(prepost_out, var = 'var', 'PrePost')
 
@@ -1178,7 +1097,7 @@ write.csv(tph_summary, file.path(paste0('../data/Benchmarking_data/Benchmarks/st
 ## Visualize absolute basal area over time and across treatments
 tph_means_all_years$xlbl <- paste(round(tph_means_all_years$Start_yr, 1), round(tph_means_all_years$End_yr, 1), sep = '-')
 
-tph_time_plot <- ggplot(tph_means_all_years[tph_means_all_years$Start_yr!=ref_year,],
+tph_time_plot <- ggplot(tph_means_all_years,
               aes(x=xlbl, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent standard error; can replace with confidence interval if desired
                   col=Treatment,fill=Treatment))+
   geom_bar(stat="identity", position = 'dodge') +
@@ -1271,24 +1190,6 @@ if(site == 'Teakettle'){
   sizeDist_by_unit <- sizeDist_by_unit[!sizeDist_by_unit$DBH_timeframe %in% c('DBH_2008'),]
 }
 
-## Load data with custom bin sizes
-if(site=='STEF'){
-  cstm_sizeDist = read.csv('../data/Benchmarking_data/STEF/custom_size_dist_by_unit_year.csv')
-  cstm_sizeDist$Size_class <- factor(cstm_sizeDist$Size_class, unique(cstm_sizeDist$Size_class))
-  
-  all_cust_avgs <- data.frame()
-  for(s in unique(cstm_sizeDist$Size_class)){
-    cust_df <- cstm_sizeDist[cstm_sizeDist$Size_class==s,]
-    
-    cust_new <- compute_avgs_over_intervals(cust_df, var = 'TPH')
-    
-    cust_new$Size_class <- s
-    
-    all_cust_avgs <- rbind(all_cust_avgs, cust_new)
-  }
-}
-
-
 ## Compute average PFT BA over each measurement interval
 all_size_avgs <- data.frame()
 
@@ -1319,12 +1220,15 @@ if(site == 'Teakettle'){
         group_by(Unit, Treatment, Size_class) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
     }else if(site=='STEF'){
-      avg_thin <- all_cust_avgs[all_cust_avgs$Treatment=='Thin',] %>%
+      avg_thin <- all_size_avgs[(all_size_avgs$Treatment=='Thin' | 
+                                   all_size_avgs$Treatment=='None') & 
+                                  all_size_avgs$Start_yr!=ref_year,] %>%
         group_by(Unit, Treatment, Size_class) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
       
       avg_burn <- all_size_avgs[all_size_avgs$Start_yr>2013 & 
-                                    all_size_avgs$Treatment=='Burn',] %>%
+                                    (all_size_avgs$Treatment=='Burn' | 
+                                       all_size_avgs$Treatment=='Burn+Thin'),] %>%
         group_by(Unit, Treatment, Size_class) %>%
         summarise(Time_wghtd_avg = weighted.mean(var, nYr))
       
@@ -1356,11 +1260,9 @@ get_se <- function(vec){
 ### Compare pre- to post-treatment
 if(site=='Teakettle'){
   pre <- sizeDist_by_unit[sizeDist_by_unit$DBH_timeframe=='DBH_Pre',]
-  }else if(site == 'Blodgett'){
+  }else{
   pre <- sizeDist_by_unit[sizeDist_by_unit$Year==ref_year,]
-  }else if(site == 'STEF'){
-  pre <- sizeDist_by_unit[sizeDist_by_unit$Treatment == 'Burn' & sizeDist_by_unit$Year==2012,]
-}
+  }
 
 pre$DBH_timeframe <- 'Pre'
 colnames(pre)[colnames(pre)=='TPH'] = 'var'
@@ -1374,99 +1276,34 @@ prepost <- rbind(pre, post)
 
 prepost_by_size <- data.frame()
 
-if(site == 'STEF'){
-  ## Pull in digitized data for 2009
-  pre_thin_digitized <- read.csv('../data/Benchmarking_data/STEF/STEF_Thin_digitized.csv')
-  pre_thin_digitized <- pre_thin_digitized[pre_thin_digitized$Metric!='Error',]
-  
-  mean_thin_pre <- pre_thin_digitized %>%
-    group_by(DBH_max) %>%
-    summarise(emmean = mean(TPH),
-              Treatment = 'Thin',
-              DBH_timeframe = 'Pre')
-  
-  mean_thin_pre$SE <- unlist(
-    pre_thin_digitized %>% 
-      group_by(DBH_max) %>%
-      group_map(~ get_mean_se(.x))
-    )
-  
-  colnames(mean_thin_pre)[colnames(mean_thin_pre)=='DBH_max'] = 'Size_class'
-    
-  
-  for(s in unique(prepost[prepost$Treatment=='Burn',]$Size_class)){
-    prepost_burn <- make_emm_df(prepost[prepost$Treatment=='Burn' & prepost$Size_class==s,],
-                                      compare_column = 'DBH_timeframe',
-                                      var = 'var',
-                                      ref = 'Pre',
-                                      rndm_fx = 'Unit')
-    
-    prepost_benchmarks <- calculate_simple_diff(prepost_burn,
-                                            compare_column = 'DBH_timeframe',
-                                            ref = 'Pre',
-                                            out_col = 'emmean')
-    
-    prepost_burn$Treatment <- 'Burn'
-    
-    prepost_burn$Size_class <- s
-    
-    prepost_by_size <- rbind(prepost_by_size, prepost_burn)
-  }
-  
-  ## Get pre-post differences for thinned units
-  stef_thin <- prepost[prepost$Treatment=='Thin',]
-  
-  mean_post_thin <- stef_thin %>% 
-    group_by(Size_class) %>%
-    summarise(SE = get_se(var),
-              emmean = mean(var),
-              Treatment = 'Thin',
-              DBH_timeframe = 'Post')
-  
-  mean_post_thin$Size_class <- as.numeric(as.character(mean_post_thin$Size_class))
-  
-  prepost_thin = bind_rows(mean_thin_pre, mean_post_thin)
-  
-  prepost_thin <- prepost_thin %>% 
-    group_by(Size_class) %>% 
-    group_modify(~ calculate_pct_diff(.x, 'DBH_timeframe', 'Pre', 'emmean'))
-  
-  prepost_thin <- clean_emm_tbl(prepost_thin, var = 'var', prfx = 'PrePost')
-
-  }else{
-    for(s in unique(prepost$Size_class)){
-      for(trt in c('Burn', 'Thin', 'Burn+Thin')){
-        if(sum(prepost$var[prepost$Treatment==trt
-                           & prepost$Size_class==s])!=0){
-          prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt
-                                                    & prepost$Size_class==s,], 
-                                            compare_column = 'DBH_timeframe', 
-                                            var = 'var', 
-                                            ref = 'Pre',
-                                            rndm_fx = 'Unit')
-          
-          prepost_benchmarks <- calculate_simple_diff(prepost_benchmarks,
-                                                      compare_column = 'DBH_timeframe',
-                                                      ref = 'Pre',
-                                                      out_col = 'emmean')
-          
-          prepost_benchmarks$Treatment <- trt
-          
-          prepost_benchmarks$Size_class <- s
-          
-          prepost_by_size <- rbind(prepost_by_size, prepost_benchmarks)
-        }
+for(s in unique(prepost$Size_class)){
+  for(trt in c('Burn', 'Thin', 'Burn+Thin', 'None')){
+    print(paste(s, trt, sep = ' '))
+    if(sum(prepost$var[prepost$Treatment==trt
+                       & prepost$Size_class==s])!=0){
+      prepost_benchmarks <- make_emm_df(prepost[prepost$Treatment==trt
+                                                & prepost$Size_class==s,], 
+                                        compare_column = 'DBH_timeframe', 
+                                        var = 'var', 
+                                        ref = 'Pre',
+                                        rndm_fx = 'Unit')
+      
+      prepost_benchmarks <- calculate_simple_diff(prepost_benchmarks,
+                                                  compare_column = 'DBH_timeframe',
+                                                  ref = 'Pre',
+                                                  out_col = 'emmean')
+      
+      prepost_benchmarks$Treatment <- trt
+      
+      prepost_benchmarks$Size_class <- s
+      
+      prepost_by_size <- rbind(prepost_by_size, prepost_benchmarks)
     }
-    }
-  }
+}
+}
 
     
 prepost_out <- clean_emm_tbl(prepost_by_size, var = 'var', 'PrePost')
-
-if(site == 'STEF'){
-  prepost_out$Size_class <- as.numeric(as.character(prepost_out$Size_class))
-  prepost_out <- bind_rows(prepost_out, prepost_thin)
-}
 
 write.csv(prepost_out, file.path(paste0('../data/Benchmarking_data/Benchmarks/prepost_size_dist_', site, '.csv')), row.names=FALSE)
 
@@ -1593,40 +1430,6 @@ size_summary
 
 ```
 
-```{r cntrl_size}
-
-### Deprecated
-# # Subset control plots
-# cntrl <- sizeDist_by_unit[sizeDist_by_unit$Treatment=='None',]
-# 
-# # Set reference year as the first measurement year
-# ref_year <- as.character(min(cntrl$Year))
-# 
-# ## Initialize dataframes to append yearly results to
-# size_means_cntrl <- data.frame()
-# size_contrasts_cntrl <- data.frame()
-# 
-# ## Loop through size classes
-# for(size in unique(cntrl$Size.Class)){
-#   # Get means and contrasts for size class
-#    size_outs <- make_emm_df(cntrl[cntrl$Size.Class==size,],
-#                            compare_column = 'Year',
-#                            var = 'TPH', 
-#                            ref = ref_year, rndm_fx = 'Unit')
-#   # Add a Year column
-#   size_outs[[1]]$Size_class <- size
-#   size_outs[[2]]$Size_class <- size
-#   
-#   # Bind to previous years
-#   size_means_cntrl <- rbind(size_means_cntrl, size_outs[[1]])
-#   size_contrasts_cntrl <- rbind(size_contrasts_cntrl, size_outs[[2]])
-# }
-# 
-# print(size_means_cntrl)
-# print(size_contrasts_cntrl)
-
-```
-
 
 ### Size class visualizations
 ```{r size_time}
@@ -1666,30 +1469,6 @@ for(l in unique(size_means_all_years$xlbl)){
   }
 
 ```
-```{r size_cntrl_diffs}
-### Deprecated
-# ## Visualize % difference in Control size distribution over time, relative to first year
-# size_cntl_diffs <- ggplot(size_means_cntrl[size_means_cntrl$Year != ref_year,],
-#               aes(x=factor(Year), y=percent_diff, ymin=percent_diff - se_percent_diff, 
-#                   ymax=percent_diff + se_percent_diff)) + 
-#   
-#   # black line is 0
-#   geom_hline(yintercept = 0, lty = 3) + 
-#   geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
-#   xlab("Year") +
-#   ylab("% difference from reference year TPH") + 
-#   ggtitle(site) + 
-# # Styling
-#   theme_minimal(base_size = 14) +
-#   theme(axis.line = element_line(color='black'), 
-#         panel.grid.minor = element_blank(),
-#         panel.grid.major = element_blank(),
-#         axis.text.x = element_text(angle=45, hjust = 1))
-#   
-# print(size_cntl_diffs + facet_wrap(~factor(Size_class, unique(sizeDist_by_unit$Size.Class)), 
-#                                    ncol = 3, scales = 'free_y'))
-```
-
 
 ```{r size_trt_diffs}
 ## Visualize % difference between Treated and Control basal area at each measurement time. 
@@ -1738,11 +1517,11 @@ We provide growth benchmarks disaggregated by PFT and tree size (15, 30, 45, 60,
 
 ## Read in growth parameters estimated via state-space models (Katz et al.)
 growth_params <- read.csv(file.path('..', 'data', 'Benchmarking_data', 
-                                    'Growth_all_sites', 'params_by_site_dbh_2025-07-08.csv'))
+                                    'Growth_all_sites', 'params_by_site_dbh_2026-01-21.csv'))
 
 ## Adjust data nomenclature
 if(site=='Blodgett'){
-  site_df <- growth_params[growth_params$Site=='Blodgett_FFS15',]
+  site_df <- growth_params[growth_params$Site=='Blodgett',]
 }else if(site == 'STEF'){
   site_df <- growth_params[growth_params$Site=='STEF-VDT15',]
 }else if(site=='Teakettle'){
@@ -1826,7 +1605,7 @@ growth_trt_diffs <- ggplot(trtmnt_effect_growth_pft,
         panel.grid.major = element_blank(),
         axis.text.x = element_text(angle=45, hjust = 1))
 
-print(growth_trt_diffs + facet_wrap(~DBH))
+print(growth_trt_diffs + facet_wrap(~DBH, scales = "free_y"))
 ```
 
 ## Benchmark 6: Mortality
@@ -1954,70 +1733,6 @@ get_unit_years <- function(df, t1, t2){
 ```
 
 
-```{r}
-
-raw_mort <- vector(mode = "list", length = length(invntry_dates[[site]]) - 1)
-
-## Load all individual mortality data 
-for(y in 2:length(invntry_dates[[site]])){
-  ivl <- paste0(invntry_dates[[site]][y-1], '-', invntry_dates[[site]][y])
-  print(ivl)
-  fn <- paste0('../data/Benchmarking_data/', site, '/mortality_invntry_', 
-               ivl, '.csv')
-  raw <- read.csv(fn)
-  raw15 <- read.csv('../data/Benchmarking_data/Teakettle/mortality_invntry_DBH_Pre-DBH_Post.csv')
-  
-  raw_mort[[y-1]] = raw
-}
-
-raw_mort <- bind_rows(raw_mort)
-
-raw15 <- raw_mort[raw_mort$DBH_BA>=15,]
-
-raw15$Dead <- ifelse(raw15[[status_col]]==dead_ind, 1, 0)
-  
-## Treatment as factor, reference level is the control
-raw15$Treatment <- factor(raw15$Treatment, levels = c('None', 'Burn', 'Thin', 'Burn+Thin'))
-
-surv_df <- raw15 %>%
-  group_by(get(treeid)) %>%
-  arrange(get(year_col)) %>%
-  summarise(
-    entry = min(start_year),
-    exit = if (any(get(status_col) == dead_ind)) min(get(year_col)[get(status_col) == dead_ind]) else max(get(year_col)),
-    status = as.integer(any(get(status_col) == dead_ind)),
-    PFT = first(PFT_simple),
-    # plot_id = first(get(plotid)),
-    unit_id = first(get(unitid)),
-    treatment = first(Treatment)
-  )
-
-surv_df <- surv_df %>%
-  mutate(
-    entry_time = entry - as.numeric(ref_year),
-    exit_time = exit - as.numeric(ref_year)
-  )
-
-
-library(survival)
-
-# Fit Kaplan-Meier
-km_fit <- survfit(Surv(entry_time, exit_time, status) ~ treatment, data = surv_df[surv_df$PFT=='fir',])
-
-# Plot
-library(survminer)
-
-ggsurvplot(km_fit, data = surv_df, conf.int = TRUE, risk.table = TRUE)
-
-library('coxme')
-
-coxme_model <- coxme(
-  Surv(entry, exit, status) ~ treatment + (1 | unit_id),
-  data = surv_df[surv_df$PFT=='fir',]
-)
-
-```
-
 
 ```{r mort_allTrees}
 
@@ -2106,18 +1821,14 @@ if(site=='Blodgett'){
                        allmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
                          allmort$Treatment %in% c('Thin', 'None'),],
                        group_cols = c('Treatment'))
-  postTrt_mort$Timeframe <- 'Post-treatment'
-  
-  out <- rbind(allmort, study_mort, postTrt_mort)
-
-}else if(site == 'Teakettle'){
+}else{
   postTrt_mort <- get_cumul_mort(allmort[allmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
                                          group_cols = c('Treatment'))
-  postTrt_mort$Timeframe <- 'Post-treatment'
-  out <- bind_rows(allmort, study_mort, postTrt_mort)
-}else{
-  out <- rbind(allmort, study_mort)
 }
+
+postTrt_mort$Timeframe <- 'Post-treatment'
+out <- rbind(allmort, study_mort, postTrt_mort)
+
 
 out$Category <- 'All trees'
 
@@ -2199,14 +1910,14 @@ if(site=='Blodgett'){
                        pftmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
                          pftmort$Treatment %in% c('Thin', 'None'),],
                        group_cols = c('Treatment', 'Category'))
-  postTrt_pft_diffs <- vector('list', length = length(pfts_in_mort))
   
-}else if(site == 'Teakettle'){
+}else{
   postTrt_pftmort <- get_cumul_mort(pftmort[pftmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
                        group_cols = c('Treatment', 'Category'))
-  postTrt_pft_diffs <- vector('list', length = length(pfts_in_mort))
 }
 
+postTrt_pft_diffs <- vector('list', length = length(pfts_in_mort))
+  
 pft_diffs <- vector('list', length = 4)
 
 for(p in pfts_in_mort){
@@ -2224,34 +1935,34 @@ for(p in pfts_in_mort){
     out_col = 'prob'
   )
   
-  if(site!='STEF'){
-    temp2 <- calculate_simple_diff(
-      postTrt_pftmort[postTrt_pftmort$Category==p,], 
-      compare_column = 'Treatment',
-      ref = 'None',
-      out_col = 'prob'
+  # if(site!='STEF'){
+  temp2 <- calculate_simple_diff(
+    postTrt_pftmort[postTrt_pftmort$Category==p,], 
+    compare_column = 'Treatment',
+    ref = 'None',
+    out_col = 'prob'
+  )
+  
+  postTrt_pft_diffs[[p]] <- calculate_pct_diff(
+    temp2,
+    compare_column = 'Treatment',
+    ref = 'None',
+    out_col = 'prob'
     )
-    
-    postTrt_pft_diffs[[p]] <- calculate_pct_diff(
-      temp2,
-      compare_column = 'Treatment',
-      ref = 'None',
-      out_col = 'prob'
-    )
-  }
+  # }
 }
 
 pftstudy_mort <- bind_rows(pft_diffs)
 pftstudy_mort$Timeframe <- 'Study mortality'
 
-if(site!='STEF'){
-  postTrt_pftmort <- bind_rows(postTrt_pft_diffs)
-  postTrt_pftmort$Timeframe <- 'Post-treatment'
-  
-  out <- bind_rows(out, pftmort, pftstudy_mort, postTrt_pftmort)
-}else{
-  out <- rbind(out, pftmort, pftstudy_mort)
-}
+# if(site!='STEF'){
+postTrt_pftmort <- bind_rows(postTrt_pft_diffs)
+postTrt_pftmort$Timeframe <- 'Post-treatment'
+
+out <- bind_rows(out, pftmort, pftstudy_mort, postTrt_pftmort)
+# }else{
+#   out <- rbind(out, pftmort, pftstudy_mort)
+# }
 ```
 
 ```{r mort_small}
@@ -2320,20 +2031,16 @@ if(site=='Blodgett'){
                        smallmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
                          smallmort$Treatment %in% c('Thin', 'None'),],
                        group_cols = c('Treatment'))
-  postTrt_smmort$Timeframe <- 'Post-treatment'
-  postTrt_smmort$Category <- cat_nm
-  
-  out <- rbind(out, smallmort, study_smmort, postTrt_smmort)
-  }else if(site == 'Teakettle'){
+
+  }else{
     postTrt_smmort <- get_cumul_mort(smallmort[smallmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
                        group_cols = c('Treatment'))
-    postTrt_smmort$Timeframe <- 'Post-treatment'
-    postTrt_smmort$Category <- cat_nm
-    
-    out <- bind_rows(out, smallmort, study_smmort, postTrt_smmort)
-    }else{
-      out <- rbind(out, smallmort, study_smmort)
-      }
+  }
+
+postTrt_smmort$Timeframe <- 'Post-treatment'
+postTrt_smmort$Category <- cat_nm
+
+out <- rbind(out, smallmort, study_smmort, postTrt_smmort)
 
 
 ```
@@ -2403,20 +2110,15 @@ if(site=='Blodgett'){
                        lgmort$end_yr < trt_dates[[site]][['Thin']][[2]] & 
                          lgmort$Treatment %in% c('Thin', 'None'),],
                        group_cols = c('Treatment'))
-  postTrt_lgmort$Timeframe <- 'Post-treatment'
-  postTrt_lgmort$Category <- cat_nm
   
-  out <- rbind(out, lgmort, study_lgmort, postTrt_lgmort)
-}else if(site == 'Teakettle'){
+}else{
   postTrt_lgmort <- get_cumul_mort(lgmort[lgmort$start_yr>trt_dates[[site]][['Thin']][[1]],],
                        group_cols = c('Treatment'))
-  postTrt_lgmort$Timeframe <- 'Post-treatment'
-  postTrt_lgmort$Category <- cat_nm
-  
-  out <- bind_rows(out, lgmort, study_lgmort, postTrt_lgmort)
-}else{
-  out <- rbind(out, lgmort, study_lgmort)
 }
+
+postTrt_lgmort$Timeframe <- 'Post-treatment'
+postTrt_lgmort$Category <- cat_nm
+out <- rbind(out, lgmort, study_lgmort, postTrt_lgmort)
 
 ```
 
@@ -2426,7 +2128,12 @@ if(site=='Blodgett'){
 out$IncludesPreTreat <- 'No'
 
 if(site=='STEF'){
-  out[out$Treatment == 'Burn' & out$start_yr==2012, 'IncludesPreTreat'] = 'Yes'
+  out[out$Treatment %in% c('Burn', 'Burn+Thin') & 
+        out$start_yr<2014 & 
+        out$Timeframe!='Post-treatment', 'IncludesPreTreat'] = 'Yes'
+  out[out$Treatment %in% c('Thin', 'None') & 
+        out$start_yr==2009 & 
+        out$Timeframe!='Post-treatment', 'IncludesPreTreat'] = 'Yes'
 }else if(site =='Blodgett'){
   out[out$start_yr==2001, 'IncludesPreTreat'] = 'Yes'
 }else if(site == 'Teakettle'){
@@ -2437,38 +2144,17 @@ write.csv(out, file.path(paste0('../data/Benchmarking_data/Benchmarks/mortality_
 ```
 
 
-```{r cntrl_mort}
-ggplot(allmort[allmort$Treatment == 'None',],
-       aes(x=calculationInterval, y=prob, 
+
+```{r mort_interval_plot}
+mort_time_plot <- ggplot(out[out$Timeframe=='Period mortality',],
+       aes(x=start_yr, y=prob, 
                                ymin=prob - SE, 
                                ymax=prob + SE, 
-                               fill=PFT
-                               )) + 
-  geom_bar(position = 'dodge', stat="identity") +
-  geom_errorbar(position = 'dodge') +
-    # scale_fill_manual(values=unlist(pft_cols), name='PFT') +
-    xlab("Timeframe") +
-    ylab("Control mortality over timeframe") + 
-    # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
-  # Styling
-    theme_minimal(base_size = 14) +
-    theme(axis.line = element_line(color='black'), 
-          panel.grid.minor = element_blank(),
-          # panel.grid.major = element_blank(),
-          axis.text.x = element_text(angle=45, hjust = 1))
-
-
-```
-```{r mort_time_plot}
-mort_time_plot <- ggplot(allmort,
-       aes(x=calculationInterval, y=prob, 
-                               ymin=prob - SE, 
-                               ymax=prob + SE, 
-                               fill=PFT
+                               fill=Treatment
                                ))  + 
   geom_bar(position = 'dodge', stat="identity") +
   geom_errorbar(position = 'dodge') +
-    # scale_fill_manual(values=unlist(pft_cols), name='PFT') +
+    scale_fill_manual(values=unlist(trt_cols), name='Treatment') +
     xlab("Timeframe") +
     ylab("Mortality rate over interval") + 
     # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
@@ -2479,9 +2165,61 @@ mort_time_plot <- ggplot(allmort,
           # panel.grid.major = element_blank(),
           axis.text.x = element_text(angle=45, hjust = 1))
     
-mort_time_plot <- mort_time_plot+facet_wrap(~Treatment, ncol=2) #, scales = 'free_y')
+mort_time_plot <- mort_time_plot+facet_wrap(~Category) #, scales = 'free_y')
 
 print(mort_time_plot)
+
+```
+
+```{r mort_wPre_plot}
+mort_study_plot <- ggplot(out[out$Timeframe=='Study mortality',],
+       aes(x=Category, y=prob, 
+                               ymin=prob - SE, 
+                               ymax=prob + SE, 
+                               fill=Treatment
+                               ))  + 
+  geom_bar(position = 'dodge', stat="identity") +
+  geom_errorbar(position = 'dodge') +
+    scale_fill_manual(values=unlist(trt_cols), name='Treatment') +
+    xlab("Timeframe") +
+    ylab("Mortality rate over interval") + 
+    # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
+  # Styling
+    theme_minimal(base_size = 14) +
+    theme(axis.line = element_line(color='black'), 
+          panel.grid.minor = element_blank(),
+          # panel.grid.major = element_blank(),
+          axis.text.x = element_text(angle=45, hjust = 1))
+    
+
+print(mort_study_plot)
+
+```
+
+```{r mort_postTrt_plot}
+
+mort_postTrt_plot <- ggplot(out[out$Timeframe=='Post-treatment',],
+       aes(x=Category, y=prob, 
+                               ymin=prob - SE, 
+                               ymax=prob + SE, 
+                               fill=Treatment
+                               ))  + 
+  geom_bar(position = 'dodge', stat="identity") +
+  geom_errorbar(position = 'dodge') +
+    scale_fill_manual(values=unlist(trt_cols), name='Treatment') +
+    xlab("Timeframe") +
+    ylab("Mortality rate over interval") + 
+    # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
+  # Styling
+    theme_minimal(base_size = 14) +
+    theme(axis.line = element_line(color='black'), 
+          panel.grid.minor = element_blank(),
+          # panel.grid.major = element_blank(),
+          axis.text.x = element_text(angle=45, hjust = 1))
+    
+
+print(mort_postTrt_plot)
+
 
 ```
 
@@ -2673,7 +2411,11 @@ fuel_by_trt <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'fuel_
 fuel_by_trt <- fuel_by_trt[fuel_by_trt$Fuel_class %in% c('1-hr', '10-hr', '100-hr'),] %>%
   group_by(Treatment, Year) %>%
   summarise(
-    Mg_ha = sum(Mg_ha)
+    Mg_ha = sum(Mg_ha),
+    
+    ### Get the standard error of the summed class
+    ### This is the upper bound on standard error (i.e., 1, 10, 100h estimates are 100% correlated)
+    SE = sum(SE)
   ) %>%
   bind_rows(fuel_by_trt, .)
 
@@ -2707,137 +2449,84 @@ write.csv(out, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_', s
 
 ```
 
+```{r blodgett_fuel}
 
-```{r cntrl_fuel}
+fuel_by_trt <- read.csv('../data/Benchmarking_data/Blodgett/fuel_by_treatment_year.csv')
 
-fuel_by_unit <- read.csv(file.path('..','data', 'Benchmarking_data', site, 'fuel_by_unit_year.csv'))
-fuel_by_unit[fuel_by_unit$Treatment=='Control', 'Treatment'] = 'None'
 
-# Subset control plots
-cntrl <- fuel_by_unit[fuel_by_unit$Treatment=='None',]
-
-ref_year <- as.character(min(cntrl$Year))
-
-## Initialize dataframes to append yearly results to
-fuel_means_cntrl <- data.frame()
-fuel_contrasts_cntrl <- data.frame()
-
-for(fuel in unique(fuel_by_unit$Fuel_class)){
-  # Get means and contrasts for size class
-  fuel_outs <- make_emm_df(cntrl[cntrl$Fuel_class==fuel,],
-                           compare_column = 'Year',
-                           var = 'Mg.ha', 
-                           ref = ref_year, rndm_fx = 'Unit')
-  # Add a Fuel column
-  fuel_outs[[1]]$Fuel_class <- fuel
-  fuel_outs[[2]]$Fuel_class <- fuel
+## Add a fuel class for the sum of 1, 10, 100hr fuels 
+fuel_by_trt <- fuel_by_trt %>%
+  filter(Fuel_class %in% c('1h_Mg_ha', '10h_Mg_ha', '100h_Mg_ha')) %>%
+  group_by(Treatment, Year) %>%
+  summarise(
+    Fuel_load = sum(Fuel_load),
+    
+    ### Get the standard error of the summed class
+    ### This is the upper bound on standard error (i.e., 1, 10, 100h estimates are 100% correlated)
+    SE = sum(SE)
   
-  # Bind to previous years
-  fuel_means_cntrl <- rbind(fuel_means_cntrl, fuel_outs[[1]])
-  fuel_contrasts_cntrl <- rbind(fuel_contrasts_cntrl, fuel_outs[[2]])
-}
+  ) %>%
+  
+  bind_rows(fuel_by_trt, .)
 
-print(fuel_means_cntrl)
-print(fuel_contrasts_cntrl)
+fuel_by_trt[is.na(fuel_by_trt$Fuel_class), 'Fuel_class'] = 'Total_1_10_100_hr_fuels'
 
-```
-
-```{r trt_fuel}
-
-## Initialize dataframes to append yearly results to
+## First, get comparison in each year of study
+### Initialize dataframes to append yearly results to
 fuel_means_trt <- data.frame()
-fuel_contrasts_trt <- data.frame()
 
-for(fuel in unique(fuel_by_unit$Fuel_class)){
-  for(year in unique(fuel_by_unit$Year)){
+for(fuel in unique(fuel_by_trt$Fuel_class)){
+  for(year in unique(fuel_by_trt$Year)){
     # Get means and contrasts for fuel class
-    fuel_outs <- make_emm_df(fuel_by_unit[fuel_by_unit$Fuel_class==fuel & fuel_by_unit$Year==year,],
-                           compare_column = 'Treatment',
-                           var = 'Mg.ha', 
-                           ref = 'None')
+    fuel_outs <- calculate_pct_diff(fuel_by_trt[fuel_by_trt$Fuel_class==fuel &
+                                                  fuel_by_trt$Year==year,], 
+                                    compare_column = 'Treatment', 
+                                    ref = 'None', 
+                                    out_col = 'Fuel_load')
     # Add a Fuel column
-    fuel_outs[[1]]$Fuel_class <- fuel
-    fuel_outs[[2]]$Fuel_class <- fuel
-    
-    # Add a Year column
-    fuel_outs[[1]]$Year <- year
-    fuel_outs[[2]]$Year <- year
-    
+    fuel_outs$Fuel_class <- fuel
+
     # Bind to previous years
-    fuel_means_trt <- rbind(fuel_means_trt, fuel_outs[[1]])
-    fuel_contrasts_trt <- rbind(fuel_contrasts_trt, fuel_outs[[2]])
+    fuel_means_trt <- rbind(fuel_means_trt, fuel_outs)
 }
 }
 
 
 print(fuel_means_trt)
-print(fuel_contrasts_trt)
 
-```
-
-```{r fuel_csv}
-
-## Clean table for export
-
-## Change diffs to NAs for control plots to avoid confusion
-fuel_means_trt[fuel_means_trt$Treatment==ref_trt, c('percent_diff', 'lowerCL_percent_diff',
-                                                    'upperCL_percent_diff', 'se_percent_diff')] = NA
-
-to_export <- fuel_means_trt[, c('Treatment', 'Fuel_class', 'Year', 'emmean', 'SE', 'percent_diff', 
-                                'se_percent_diff', 'lowerCL_percent_diff',
-                                'upperCL_percent_diff')]
-
-colnames(to_export)[colnames(to_export) == 'emmean'] = 'Fuel_load'
-
-write.csv(to_export, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_', site, '.csv')), row.names=FALSE)
+write.csv(fuel_means_trt, file.path(paste0('../data/Benchmarking_data/Benchmarks/fuels_', site, '.csv')), row.names=FALSE)
 
 ```
 
 
 ### Fuel visualizations
 ```{r ba_timeseries}
-## Visualize basal area by time and treatment
 fuel_time_plot <- ggplot(fuel_means_trt,
-              aes(x=Year, y=emmean, ymin=emmean-SE, ymax=emmean+SE, ## ribbons represent SE
-                  col=Treatment,fill=Treatment))+ 
-  geom_line() + geom_ribbon(color = NA, alpha = 0.25) +
-  scale_fill_manual(values=unlist(trt_cols), name='Treatment',
-                      breaks = c('None', 'Burn', 'Thin', 'Burn+Thin'))+
-  scale_color_manual(values=unlist(trt_cols), name='Treatment', breaks = c('None', 'Burn', 'Thin', 'Burn+Thin')) +
-  xlab("Year") +
-  ylab("Fuel (Mg/ha)") + 
-# Styling
-  theme_minimal(base_size = 14) +
-  theme(axis.line = element_line(color='black'), 
-        panel.grid.minor = element_blank(),
-        panel.grid.major = element_blank(),
-        axis.text.x = element_text(angle=45, hjust = 1))
+       aes(x=Year, y=Fuel_load, 
+                               ymin=Fuel_load - SE, 
+                               ymax=Fuel_load + SE, 
+                               fill=Treatment
+                               ))  + 
+  geom_bar(position = 'dodge', stat="identity") +
+  geom_errorbar(position = 'dodge') +
+    scale_fill_manual(values=unlist(trt_cols), name='Treatment') +
+    xlab("Timeframe") +
+    ylab("Mg/ha") + 
+    # ylim(c(0, max(size_means_trt$emmean + size_means_trt$SE))) +
+  # Styling
+    theme_minimal(base_size = 14) +
+    theme(axis.line = element_line(color='black'), 
+          panel.grid.minor = element_blank(),
+          # panel.grid.major = element_blank(),
+          axis.text.x = element_text(angle=45, hjust = 1))
+    
+fuel_time_plot <- fuel_time_plot+facet_wrap(~Fuel_class, scales = 'free_y', ncol = 2)
 
-  
-print(fuel_time_plot + facet_wrap(~Fuel_class, ncol =2, scales='free_y'))
+print(fuel_time_plot)
 
 ```
 
-```{r size_cntrl_diffs}
-## Visualize % difference in Control size distribution over time, relative to first year
-fuel_cntl_diffs <- ggplot(fuel_means_cntrl[fuel_means_cntrl$Year != ref_year,],
-              aes(x=Fuel_class, y=percent_diff, ymin=percent_diff - se_percent_diff, 
-                  ymax=percent_diff + se_percent_diff)) + 
-  
-  # black line is 0
-  geom_hline(yintercept = 0, lty = 3) + 
-  geom_point(color = 'grey') + geom_errorbar(color = 'grey') +
-  xlab("Year") +
-  ylab("% difference from reference year") + 
-# Styling
-  theme_minimal(base_size = 14) +
-  theme(axis.line = element_line(color='black'), 
-        panel.grid.minor = element_blank(),
-        panel.grid.major = element_blank(),
-        axis.text.x = element_text(angle=45, hjust = 1))
-  
-print(fuel_cntl_diffs)
-```
+
 
 ```{r fuel_trt_diffs}
 ## Visualize $ difference in Treated vs Control basal area over time
