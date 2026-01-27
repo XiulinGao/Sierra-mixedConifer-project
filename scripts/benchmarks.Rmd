@@ -87,7 +87,7 @@ library(stringr)
 library(dplyr)
 
 ## Specify site: Blodgett, STEF, or Teakettle
-site <- 'STEF'
+site <- 'Teakettle'
 
 ### Set reference year
 ## The reference year is the first year of measurement, unless otherwise indicated
@@ -600,15 +600,19 @@ print(ba_trt_diffs)
 ## Load basal area in each unit, which were calculated outside of this markdown file. 
 pft_by_unit <- read.csv(file.path('..', 'data', 'Benchmarking_data', site, 'pft_by_unit_year.csv'))
 
+## Rescale composition excluding all species except cedar, fir, pine, oak
+subset_pft <- pft_by_unit %>% 
+  filter(PFT %in% c('cedar', 'fir', 'pine', 'oak')) 
+
 if(site == 'Teakettle'){
-  pft_fracs <- pft_by_unit %>% 
+  pft_fracs <- subset_pft %>% 
     group_by(DBH_timeframe, Unit, Treatment) %>%
     mutate(PFT_fraction = BAperTree_m2ha/sum(BAperTree_m2ha))
   
   pft_fracs <- pft_fracs[!(pft_fracs$DBH_timeframe %in% c('DBH_2008')),]
   
 }else{
-  pft_fracs <- pft_by_unit %>%
+  pft_fracs <- subset_pft %>%
     group_by(Year, Unit, Treatment) %>%
     mutate(PFT_fraction = BAperTree_m2ha/sum(BAperTree_m2ha))
 
@@ -691,7 +695,13 @@ prepost <- rbind(pre, post)
 prepost_by_pft <- data.frame()
 
   for(p in c('cedar', 'fir', 'pine', 'oak')){
-    for(trt in c('Burn', 'Thin', 'Burn+Thin', 'None')){
+    if(site %in% c('Blodgett', 'STEF')){
+      trt_lst <- c('Burn', 'Thin', 'Burn+Thin', 'None')
+    }else if(site == 'Teakettle'){
+      trt_lst <- c('Burn', 'Thin', 'Burn+Thin')
+    }
+    
+    for(trt in trt_lst){
       print(paste(p, trt, sep = ' '))
       if(sum(prepost$var[prepost$Treatment==trt
                          & prepost$PFT==p])!=0){
