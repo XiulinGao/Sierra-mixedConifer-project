@@ -86,7 +86,7 @@ sz_obs = c("size_dist_Blodgett.csv",
            "size_dist_STEF.csv",
            "size_dist_Teakettle.csv")
 fuel_obs = c("fuels_Blodgett.csv",
-             "fuels_STEF.csv",
+             #"fuels_STEF.csv",
              "fuels_Teakettle.csv")
 comp_obs = c("pft_composition_Blodgett.csv",
              "pft_composition_STEF.csv",
@@ -432,6 +432,11 @@ find_mort = function(x,n){
    return(mort_year)
 }#end function find_mort
 
+mort_fun2 = function(x,n){
+  mort_pcnt = ifelse(test = n ==0, yes=NA, no=(x/n)*100)
+  return(mort_pcnt)
+}
+
 rename_sd = function(x){
    x = gsub(pattern="fates_",replacement = "sd_",x)
 }
@@ -486,12 +491,12 @@ bypft = bypft                    %>%
 mortout_pft    = names(bypft)[grep(pattern="mortality",x=names(bypft))]
 bypft  =     bypft                                              %>% 
              mutate(month = month(time)
-                   ,year  = year(time))                         %>% 
-             mutate_at(c(mortout_pft),
-                       ~ find_mort(x=.x,
-                                   n= ifelse(.x=="fates_mortality_ustory", 
-                                                   .data$fates_nplant_ustory, 
-                                                   .data$fates_nplant)))
+                   ,year  = year(time))                         #%>% 
+            # mutate_at(c(mortout_pft),
+            #           ~ find_mort(x=.x,
+            #                       n= ifelse(.x=="fates_mortality_ustory", 
+            #                                       .data$fates_nplant_ustory, 
+            #                                       .data$fates_nplant)))
 bypft$fates_mortality = bypft %>% dplyr::select(starts_with("fates_mortality")) %>% rowSums()
 
 
@@ -500,6 +505,7 @@ bypft$fates_mortality = bypft %>% dplyr::select(starts_with("fates_mortality")) 
 ## in the calculation of averaged growth rate
 ## by setting its growth rate to N/A
 
+
 bypft_na = bypft                     %>% 
 mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
                            NA, fates_ddbh_canopy*ha_2_m2),
@@ -507,15 +513,17 @@ mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_cano
                            NA, fates_ddbh_ustory*ha_2_m2),
        fates_ddbh        = ifelse(is.na(fates_nplant) | fates_nplant==0, 
                            NA, fates_ddbh*ha_2_m2),
+       fates_mortality = ifelse(is.na(fates_nplant) | fates_nplant==0,
+                                NA, fates_mortality/fates_nplant*100),
        fates_nplant_canopy = ifelse(fates_nplant_canopy==0, NA, fates_nplant_canopy),
        fates_nplant_ustory = ifelse(fates_nplant_ustory==0, NA, fates_nplant_ustory),
        fates_nplant        = ifelse(fates_nplant==0, NA, fates_nplant))
 
-bypft_na = bypft_na                         %>% 
-           dplyr::select(-c(time,month))    %>% 
-           group_by(case,desc,year,pft)     %>%
-           summarize_all(mean,na.tm=TRUE)   %>%
-           ungroup()
+#bypft_na = bypft_na                         %>% 
+#           dplyr::select(-c(time,month))    %>% 
+#           group_by(case,desc,year,pft)     %>%
+#           summarize_all(mean,na.tm=TRUE)   %>%
+#           ungroup()
   
 
 ddbh_vars = names(bypft_na)[grepl("ddbh",names(bypft_na))]
@@ -718,12 +726,12 @@ overall = overall                                    %>%
 
 overall = overall                                 %>% 
           mutate(month = month(time)
-                ,year  = year(time))              %>% 
-             mutate_at(c(mortout_pft),
-                       ~ find_mort(x=.x,
-                                   n= ifelse(.x=="fates_mortality_ustory", 
-                                                   .data$fates_nplant_ustory, 
-                                                   .data$fates_nplant)))
+                ,year  = year(time))             # %>% 
+             #mutate_at(c(mortout_pft),
+            #           ~ find_mort(x=.x,
+            #                       n= ifelse(.x=="fates_mortality_ustory", 
+            #                                       .data$fates_nplant_ustory, 
+            #                                       .data$fates_nplant)))
 overall$fates_mortality = overall %>% dplyr::select(starts_with("fates_mortality")) %>% rowSums()
 
 
@@ -735,6 +743,8 @@ overall_na  = overall                    %>%
                              NA, fates_ddbh_ustory*ha_2_m2),
          fates_ddbh        = ifelse(is.na(fates_nplant) | fates_nplant==0, 
                              NA, fates_ddbh*ha_2_m2),
+         fates_mortality = ifelse(is.na(fates_nplant) | fates_nplant==0,
+                                  NA, fates_mortality/fates_nplant*100),
          fates_nplant_canopy = ifelse(fates_nplant_canopy==0, NA, fates_nplant_canopy),
          fates_nplant_ustory = ifelse(fates_nplant_ustory==0, NA, fates_nplant_ustory),
          fates_nplant        = ifelse(fates_nplant==0, NA, fates_nplant))
@@ -894,12 +904,14 @@ mortout_dbh = names(bydbh)[grepl(pattern="mortality",names(bydbh))]
 
 bydbh = bydbh                                      %>% 
             mutate(year  = year(time),
-                   month = month(time))            %>% 
-             mutate_at(c(mortout_dbh),
-                       ~ find_mort(x=.x,
-                                   n= ifelse(.x=="fates_mortality_ustory", 
-                                                   .data$fates_nplant_ustory, 
-                                                   .data$fates_nplant)))
+                   month = month(time))            #%>% 
+             #mutate_at(c(mortout_dbh),
+            #           ~ find_mort(x=.x,
+            #                       n= ifelse(.x=="fates_mortality_ustory", 
+            #                                       .data$fates_nplant_ustory, 
+            #                                       .data$fates_nplant)))
+
+bydbh$fates_mortality = bydbh %>% dplyr::select(starts_with("fates_mortality")) %>% rowSums()
 
 bydbh_na = bydbh                                          %>% 
            mutate(fates_ddbh_canopy = ifelse(is.na(fates_nplant_canopy) | fates_nplant_canopy==0,
@@ -1469,16 +1481,32 @@ for(p in sequence(n_path)){
 
 ## benchmark baseline simulation
 
-model_ctrl_struc = overall_na                            %>% 
-                   select(case,desc,
-                          fates_basalarea,
-                          fates_nplant)                  %>% 
-                   filter(case %in% c(1,5,9)) 
+model_ctrl_struc_bldgt = overall_na                            %>% 
+                         select(case,desc,year,
+                                fates_basalarea,
+                                fates_nplant)                  %>% 
+                         filter(case ==1 &
+                                year %in% c(2003:2020)) 
+model_ctrl_struc_stef = overall_na                            %>% 
+                         select(case,desc,year,
+                                fates_basalarea,
+                                fates_nplant)                  %>% 
+                         filter(case ==5 &
+                                year %in% c(2012:2018)) 
+model_ctrl_struc_tea = overall_na                            %>% 
+                         select(case,desc,year,
+                                fates_basalarea,
+                                fates_nplant)                  %>% 
+                         filter(case == 9 &
+                                year %in% c(2002:2019))
+model_ctrl_struc = rbind(model_ctrl_struc_bldgt, model_ctrl_struc_stef, model_ctrl_struc_tea)
 model_ctrl_struc_mean = model_ctrl_struc                 %>% 
+                   select(-year)                         %>% 
                    group_by(case,desc)                   %>% 
                    summarize_all(mean,na.rm=TRUE)        %>% 
                    ungroup()
 model_ctrl_struc_se = model_ctrl_struc                   %>% 
+                   select(-year)                         %>% 
                    group_by(case,desc)                   %>% 
                    summarize_all(funs(se=sd(.,na.rm=TRUE)/sqrt(sum(!is.na(.)))))        %>% 
                    ungroup()                            
@@ -2074,15 +2102,24 @@ for (d in sequence(ndevice)){
 ```{r SizeDistributionBenchmark}
 
 ## benchmark baseline simulations first
-ctrl_sz_mod = sz_model                               %>% 
-              filter(case %in% c(1,5,9))             %>% 
-              select(case,desc,dbh,fates_nplant)     %>% 
+ctrl_sz_mod_bldgt = sz_model                         %>% 
+              filter(case %in% c(1) &
+                      year %in% c(2003:2020))        %>% 
+              select(case,desc,dbh,fates_nplant)     
+ctrl_sz_mod_stef = sz_model                         %>% 
+              filter(case %in% c(5) &
+                      year %in% c(2012:2018))        %>% 
+              select(case,desc,dbh,fates_nplant)     
+ctrl_sz_mod_tea = sz_model                         %>% 
+              filter(case %in% c(9) &
+                      year %in% c(2002:2019))        %>% 
+              select(case,desc,dbh,fates_nplant)  
+ctrl_sz_mod_all = rbind(ctrl_sz_mod_bldgt, ctrl_sz_mod_stef,ctrl_sz_mod_tea)
+ctrl_sz_mod = ctrl_sz_mod_all                        %>% 
               group_by(case,desc,dbh)                %>% 
               summarize_all(mean,na.rm=TRUE)         %>% 
               ungroup()
-ctrl_sz_mod_se = sz_model                            %>% 
-              filter(case %in% c(1,5,9))             %>% 
-              select(case,desc,dbh,fates_nplant)     %>% 
+ctrl_sz_mod_se = ctrl_sz_mod_all                     %>% 
               group_by(case,desc,dbh)                %>% 
               summarize_all(funs(fates_nplant_se=sd(.,na.rm=TRUE)/sqrt(sum(!is.na(.))))) %>% 
               ungroup()
@@ -2844,12 +2881,21 @@ ddbh_pft_plot  = ggplot(plot_df,aes(x=pft,y=fates_ddbh,
 
 ```{r MortalityByPFTBenchmark}
 
+
+
 mod_mortpft = bypft                          %>% 
               select(case,desc,year,pft,
-                     fates_mortality)        %>% 
+                     fates_mortality,
+                     fates_nplant)          
+mod_mortpft = mod_mortpft                    %>% 
+              #mutate_at(vars(fates_mortality), 
+              #~ mort_fun2(.x,fates_nplant))  %>% 
               group_by(case,desc,year,pft)   %>% 
               summarize_all(mean,na.rm=TRUE) %>% 
-              ungroup()
+              ungroup()                      %>% 
+              mutate_at(vars(fates_mortality),
+              ~ mort_fun2(.x, fates_nplant))
+
 
 mod_mortpft = mod_mortpft                   %>% 
               mutate(site=site_grab(desc))
@@ -2864,6 +2910,8 @@ bldgt_sum_pft = bldgt                      %>%
         select(-c(case,year))              %>% 
         summarize_all(sum,na.rm=TRUE)      %>% 
         ungroup()
+
+
 bldgt_sum = bldgt                      %>% 
         group_by(desc,site,yr_group)   %>% 
         select(-c(case,year,pft))      %>% 
@@ -2877,13 +2925,17 @@ stef = mod_mortpft                         %>%
                              labels=c("2011-2014","2015-2016",
                                       "2017-2018","2018-2020")))
 
-
 stef_sum_pft = stef                        %>% 
        group_by(desc,site,pft,yr_group)    %>% 
        select(-c(case,year))               %>% 
        summarize_all(sum,na.rm=TRUE)       %>% 
        ungroup()                           %>% 
        filter(yr_group!="2018-2020")
+stef_sum_pft = stef_sum_pft                %>% 
+       mutate_at(vars(fates_mortality),
+       ~ mort_fun2(.x, fates_nplant))
+
+
 stef_sum = stef                        %>% 
        group_by(desc,site,yr_group)    %>% 
        select(-c(case,year,pft))       %>% 
@@ -2902,13 +2954,13 @@ tea_sum_pft = tea                          %>%
           summarize_all(sum,na.rm=TRUE)    %>% 
           ungroup()                        %>% 
           filter(yr_group!="2019-2020")
+
 tea_sum = tea                              %>% 
           group_by(desc,site,yr_group)     %>% 
           select(-c(case,year,pft))        %>% 
           summarize_all(sum,na.rm=TRUE)    %>% 
           ungroup()                        %>% 
           filter(yr_group!="2019-2020")   
-
 
 mod_mortpft_yr = rbind(bldgt_sum_pft,stef_sum_pft,tea_sum_pft)
 mod_mortpft_yr$treatment = unlist(lapply(mod_mortpft_yr$desc,treatment_grab))
@@ -3004,7 +3056,8 @@ obs_mortpft_yr = obs_mort                         %>%
               ungroup()                            %>% 
               mutate(type = "Observation")
 
-    
+mod_mortpft_yr = mod_mortpft_yr %>% select(-fates_nplant)   
+mod_mortpft_sum = mod_mortpft_sum %>% select(-fates_nplant)
 mod_mortpft_yr = rbind(mod_mortpft_yr,obs_mortpft_yr)
 mod_mortpft_sum = rbind(mod_mortpft_sum,obs_mortpft_sum)
 
@@ -3125,32 +3178,45 @@ plot_df$treatment = factor(plot_df$treatment,levels=c("Control","Burn","Thin"))
 
 ```{r MortalityBySizeBenchmark}
 
-mod_mort_dbh  = bydbh_na                          %>% 
+mod_mort_dbh  = bydbh_na                                  %>% 
                 select(all_of(c("case","desc",
-                                "year","dbh",
-                              mortout_dbh[1:8]))) %>% 
-                filter(dbh %in% c(4:13))          %>% 
+                                "year","dbh","fates_nplant",
+                              mortout_dbh[c(1:6,9:10)]))) %>% 
+                filter(dbh %in% c(4:13))                  %>% 
                 mutate(dbh_grp = cut(dbh,breaks=c(-Inf,8,Inf),
                                  labels=c("DBH <= 60cm","DBH > 60cm")),
                        site = site_grab(desc))
 mod_mort_dbh$fates_mortality = mod_mort_dbh %>% dplyr::select(starts_with("fates_mortality")) %>% rowSums()
 
+## then calculate mortality rate for each size group (DBH <=60 & DBH >60)
+mod_mort_dbh  = mod_mort_dbh                                   %>% 
+                group_by(case,desc,site,year,dbh_grp)          %>% 
+                mutate(fates_nplant = sum(fates_nplant,na.rm=TRUE),
+                       fates_mortality = sum(fates_mortality, na.rm=TRUE)) %>% 
+                ungroup()                                      %>% 
+                mutate_at(vars(fates_mortality), 
+                          ~ mort_fun2(.x, fates_nplant))       
+
+## then sum across each time window to get cumulative mortality rate
+## for each of the two size groups at each site
 bldgt = mod_mort_dbh                       %>% 
         filter(site=="Blodgett")           %>% 
         mutate(yr_group = cut(year,breaks=c(-Inf,2003,2009,2016,Inf),
                               labels=c("2001-2003","2004-2009",
                                        "2010-2016","2017-2020"))) %>% 
-        select(case,desc,site,yr_group,dbh_grp,fates_mortality)        %>% 
-        group_by(case,desc,site,yr_group,dbh_grp) %>% 
-        summarize_all(sum,na.rm=TRUE)        %>% 
-        ungroup()
+        select(case,desc,site,yr_group,dbh_grp,fates_mortality)   %>%
+        distinct()                                                %>% 
+        group_by(case,desc,site,yr_group,dbh_grp)                 %>% 
+        summarize_all(sum,na.rm=TRUE)                             %>% 
+        ungroup()            
 
 stef = mod_mort_dbh                         %>% 
        filter(site=="STEF")                %>% 
        mutate(yr_group = cut(year,breaks=c(-Inf, 2014, 2016, 2018,Inf),
                              labels=c("2011-2014","2015-2016",
                                       "2017-2018","2018-2020")))  %>%
-       select(case,desc,site,yr_group,dbh_grp,fates_mortality)        %>% 
+       select(case,desc,site,yr_group,dbh_grp,fates_mortality)    %>% 
+       distinct()                                                 %>% 
        group_by(case,desc,site,yr_group,dbh_grp) %>% 
        summarize_all(sum,na.rm=TRUE)        %>% 
        ungroup()                            %>% 
@@ -3161,7 +3227,8 @@ tea = mod_mort_dbh                          %>%
        mutate(yr_group = cut(year,breaks=c(-Inf, 2003, 2011, 2018,2019,Inf),
                              labels=c("2001-2003","2004-2011",
                                       "2012-2018","2018-2019","2019-2020"))) %>% 
-       select(case,desc,site,yr_group,dbh_grp,fates_mortality)        %>% 
+       select(case,desc,site,yr_group,dbh_grp,fates_mortality)   %>% 
+       distinct()                                                %>% 
        group_by(case,desc,site,yr_group,dbh_grp) %>% 
        summarize_all(sum,na.rm=TRUE)        %>% 
        ungroup()                            %>% 
@@ -3277,33 +3344,27 @@ for (d in sequence(ndevice)){
 
 ```{r CumulativeMortalityBenchmark}
 
-mod_mortsum = data.table::fread(file.path(main_path,model_file_name[4]))
 obs_mortsum = fread(file.path(obs_path,"mort-obs.csv"))
 obs_mortsum = obs_mortsum %>% filter(Timeframe == "Study mortality" &
                                      Category %in% c("<60cm",">60cm") &
                                      Treatment != "Burn+Thin")
 
-mod_mortsum = mod_mortsum                            %>% 
-              select(-c(fates_mortality_rxcambial,
-                        fates_mortality_rxcrown))    %>% 
-              mutate(site = site_grab(desc))
-
-mod_mortsum$fates_mortality = mod_mortsum %>% dplyr::select(starts_with("fates_mortality")) %>% rowSums()
-
-
 bldgt = mod_mort_dbh                       %>% 
-        filter(site=="Blodgett")           %>% 
+        filter(site=="Blodgett" &
+              year %in% c(2001:2020))      %>% 
         select(case,desc,site,dbh_grp,
                fates_mortality)            %>% 
+        distinct()                         %>% 
         group_by(case,desc,site,dbh_grp)   %>% 
         summarize_all(sum,na.rm=TRUE)      %>% 
         ungroup()
 
 stef = mod_mort_dbh                         %>% 
        filter(site=="STEF" &
-              year %in% c(2012:2018))       %>% 
+              year %in% c(2011:2018))       %>%   ## change this to 2011:2018, was 2012:2018
        select(case,desc,site,dbh_grp,
               fates_mortality)              %>% 
+       distinct()                           %>% 
        group_by(case,desc,site,dbh_grp)     %>% 
        summarize_all(sum,na.rm=TRUE)        %>% 
        ungroup()                           
@@ -3313,6 +3374,7 @@ tea = mod_mort_dbh                          %>%
               year %in% c(2000:2018))       %>%
        select(case,desc,site,dbh_grp,
               fates_mortality)              %>% 
+       distinct()                           %>% 
        group_by(case,desc,site,dbh_grp)     %>% 
        summarize_all(sum,na.rm=TRUE)        %>% 
        ungroup()                           
@@ -4060,6 +4122,7 @@ plot_df = comp_ctrl_all
 plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
 pft_keys = pftinfo$short[1:4]
 names(pft_keys) = c(1:4)
+plot_df = plot_df %>% filter(pft!=4)
 
 gg_now = ggplot(plot_df,aes(x=pft,y=fates_basalarea,fill=type)) 
 gg_now = gg_now + facet_wrap(.~site, ncol=3)
@@ -4069,7 +4132,7 @@ gg_now = gg_now + geom_errorbar(aes(ymin=fates_basalarea-se,
                      width=0.2,
                      position=position_dodge(0.6))
 gg_now = gg_now + scale_fill_manual(values=c("black","grey50"))
-gg_now = gg_now + scale_x_discrete(labels=pft_keys)
+gg_now = gg_now + scale_x_discrete(labels=pft_keys[1:3])
 gg_now = gg_now + ylab("Percent basal area by PFT (%)")
 gg_now = gg_now + xlab("") 
 gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",
@@ -4218,12 +4281,12 @@ gg_now = gg_now + geom_errorbar(aes(ymin=fates_basalarea - fates_basalarea_se,
                      width=0.2,
                      position=position_dodge(0.6))
 gg_now = gg_now + facet_wrap(treatment~site,ncol=3, scales="free_y")
-gg_now = gg_now + scale_x_discrete(labels=pft_keys[1:3])
+gg_now = gg_now + scale_x_discrete(labels=pft_keys)
 gg_now = gg_now + scale_fill_manual(values=c("Model-BurnCool" = "#836B43",
                                               "Model-BurnHot" = "#D68D18",
                                               "Model-Thin" = "#A0AE6A",
                                               "Observation" = "#437683"))
-gg_now = gg_now + ylab("Relative change in basalarea by PFT (%)")
+gg_now = gg_now + ylab("Relative change in basal area by PFT (%)")
 gg_now = gg_now + xlab("")
 gg_now = gg_now + theme_grey( base_size = gg_ptsz, base_family = "Helvetica",
                                 base_line_size = 0.5,base_rect_size =0.5) 
