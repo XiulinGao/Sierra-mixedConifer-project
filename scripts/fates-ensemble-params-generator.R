@@ -293,6 +293,12 @@ param_pd = as.data.frame(param_pd)
 param_table = cbind(param_table,param_pd)
 rm(param_pd)
 opt       = c("lt","gt","eq")
+rx_params = c("fates_rxfire_temp_lwthreshold",
+              "fates_rxfire_rh_lwthreshold",
+              "fates_rxfire_wind_lwthreshold")
+rx_reladiff = 0.5
+try_num     = 100
+
 for (r in sequence(nrow(param_table))){
   for(p in sequence(n_ref)){
     targ_col  = param_ref[p]
@@ -321,7 +327,16 @@ for (r in sequence(nrow(param_table))){
           assign_val = runif(1,min=ref_val,max=tag_max)
         }
         if(ineq == "lt"){
-          assign_val = runif(1,min=tag_min,max=ref_val)
+          
+          if(param_prefix %in% rx_params & !is.na(rx_reladiff)){
+            can_lst = runif(try_num,min=tag_min,max=ref_val)
+            for (i in sequence(try_num)){
+              assign_val = can_lst[i]
+              if(assign_val <= rx_reladiff*ref_val) break}
+          }else{
+            assign_val = runif(1,min=tag_min,max=ref_val) 
+          }
+          
         }
         if(ineq == "eq"){
           assign_val = ref_val
@@ -366,11 +381,20 @@ for (r in sequence(nrow(param_table))){
       
     } #end of if(ineq=="complex")
     
+  ## handle unique case for fragmentation rate
     if(param_prefix == "fates_frag_maxdecomp"){
       ref_col = "fates_frag_maxdecomp_O01"
       ref_val = param_table[[ref_col]][[r]]
       param_table[[targ_col]][[r]] = ref_val * tag_max
     } # end of if(param_prefix == "fates_frag_maxdecomp")
+    
+  ## handle unique case for blca, crown area allometry
+    if(param_prefix == "fates_allom_blca_expnt_diff"){
+      ref_col = "fates_allom_blca_expnt_diff_P01"
+      ref_val1 = param_table[[ref_col]][[r]]
+      ref_val2 = param_config$value_min[param_config$corr_name==ref_col]
+      param_table[[targ_col]][[r]] = ref_val1 - ref_val2 + tag_min
+    } # end of if(param_prefix == "fates_allom_blca_expnt_diff")
 } #end of for(p in sequence(n_ref))
 } # end of for (r in sequence(nrow(param_table)))
 
