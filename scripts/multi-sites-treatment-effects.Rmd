@@ -617,7 +617,7 @@ for(n in treated_case){
     mean_pft  = delta_now                                                 %>% 
                #mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
                #filter(!is.na(RXtrt_grp))                                 %>%
-               dplyr::select(-c(year,case,desc))                                %>% 
+               dplyr::select(-c(year,case,desc))                         %>% 
                group_by(site,treatment,pft)                              %>% 
                summarize_all(mean,na.rm=TRUE)
     
@@ -626,13 +626,13 @@ for(n in treated_case){
     sd_pft  = delta_now                                                 %>% 
                #mutate(RXtrt_grp = cut(time,breaks = breaks_now,labels))  %>% 
                #filter(!is.na(RXtrt_grp))                                 %>%
-               dplyr::select(-c(year,case,desc))                                %>% 
+               dplyr::select(-c(year,case,desc))                         %>% 
                group_by(site,treatment,pft)                              %>% 
                summarize_all(sd,na.rm=TRUE)
      deltabypft_sd = rbind(deltabypft_sd,sd_pft)
      
      se_pft = delta_now                    %>% 
-              select(-c(year,case,desc))   %>% 
+              dplyr::select(-c(year,case,desc))   %>% 
               group_by(site,treatment,pft) %>% 
               summarize_all(funs(se=sd(.)/sqrt(n())))
      deltabypft_se = rbind(deltabypft_se,se_pft)
@@ -816,7 +816,7 @@ for(n in treated_case){
     delta_sd = rbind(delta_sd,sd_now)
     
     se_now  = delta_now                       %>% 
-              select(-c(year,case,desc))      %>% 
+              dplyr::select(-c(year,case,desc))      %>% 
               group_by(site,treatment)        %>% 
               summarize_all(funs(se=sd(.)/sqrt(n())))
     delta_se = rbind(delta_se,se_now)
@@ -4307,7 +4307,7 @@ gg_now = gg_now + theme( legend.title =element_blank()
                     , device   = gg_device[d]
                     , path     = bncmark_path
                     , width    = gg_widthn*0.7
-                    , height   = gg_height*0.65
+                    , height   = gg_height*0.7
                     , units    = gg_units
                     , dpi      = gg_depth
                     )
@@ -4566,6 +4566,188 @@ for (d in sequence(ndevice)){
                     , dpi      = gg_depth
     )
     }
+
+
+
+
+
+```
+
+
+
+
+```{r OtherAppendixFigs}
+
+#### burn window ####
+hlm1d = fread(file.path(main_path,"hlm1d-3sites.csv"))
+
+hlm1d$treatment = unlist(lapply(hlm1d$desc,treatment_grab))
+
+hlm1d = hlm1d %>% mutate(site=site_grab(desc),
+                         precip = rain + snow)
+
+plot_df = hlm1d                                  %>% 
+          filter(!case %in% c(1:2,5:6,9:10))     %>% 
+          mutate(month = month(time))            %>% 
+          select(site,desc,treatment,month,
+                 fates_rx_burn_window)           %>% 
+          group_by(site,desc,treatment,month)    %>% 
+          summarize_all(mean,na.rm=TRUE)         %>% 
+          ungroup()
+
+plot = ggplot(plot_df)  +
+       geom_line(aes(x=month,y=fates_rx_burn_window,
+                 colour=treatment,group=treatment),
+                 linewidth=1.5,alpha=0.5,show.legend=TRUE) +
+       facet_wrap(.~site,ncol=3) +
+       scale_x_continuous( breaks = sequence(12)) +
+       scale_colour_manual(values=c("Burn-Cool" = "#836B43",
+                                    "Burn-Hot" = "#D68D18")) +
+       ylab(paste0("Prescribed fire burn window (%)")) +
+       xlab("Month") +
+       theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+       theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+  
+  
+  for (d in sequence(ndevice)){
+    f_output = paste0("burn-window-by-site.",gg_device[d])
+    dummy    = ggsave( filename = f_output
+                    , plot     = plot
+                    , device   = gg_device[d]
+                    , path     = plot_main
+                    , width    = gg_widthn*0.7
+                    , height   = gg_height*0.6
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+  }
+
+
+### Site forcing ####
+plot_df = hlm1d                             %>% 
+          filter(case %in% c(1,5,9))        %>% 
+          mutate(month = month(time))       %>% 
+          select(site, month,precip, tsa)   %>% 
+          group_by(site,month)              %>% 
+          summarize_all(mean,na.rm=TRUE)    %>% 
+          ungroup()
+plot_vars = c("precip", "tsa")
+n_plot = length(plot_vars)
+
+for (p in seq(n_plot)){
+  var_now = plot_vars[p]
+  plot = ggplot(plot_df)  +
+         geom_line(aes_string(x="month",y=var_now,
+                 colour="site",group="site"),
+                 linewidth=1.5,alpha=0.5,show.legend=TRUE) +
+       scale_x_continuous( breaks = sequence(12)) +
+       scale_colour_manual(values=top12) 
+  if(p==1){
+    plot = plot + ylab("Monthly mean precipitation (mm)")
+    f_output = paste0("precip-by_site.",gg_device[d])
+  }else{
+    plot = plot + ylab(expression("Monthly mean temperature ("~degree*"C"~")"))
+    f_output = paste0("temp-by_site.",gg_device[d])
+  }
+  plot = plot + 
+         xlab("Month") +
+         theme_grey( base_size = gg_ptsz, base_family = "Helvetica",base_line_size = 0.5,base_rect_size =0.5) +
+         theme( legend.title =element_blank()
+            , legend.position="bottom"
+            , legend.box = "vertical"
+            , legend.margin = margin()
+            , axis.text.x       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            , axis.text.y       = element_text( size   = gg_ptsz
+                                              , margin = unit(rep(0.35,times=4),"cm"))#end element_text
+            )#end theme+
+  
+  
+  for (d in sequence(ndevice)){
+    dummy    = ggsave( filename = f_output
+                    , plot     = plot
+                    , device   = gg_device[d]
+                    , path     = plot_main
+                    , width    = gg_widthn*0.5
+                    , height   = gg_height*0.6
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+  }
+
+
+
+}
+
+
+### PFT fire mortality for prescribed fire simulations across sites ####
+plot_df = bypft                               %>% 
+          filter(!case %in% c(1:2,5:6,9:10))  %>% 
+          mutate(site = site_grab(desc))
+plot_df$treatment = unlist(lapply(plot_df$desc,treatment_grab))
+pft_keys = pftinfo$short[1:4]
+names(pft_keys) = c(1:4)
+
+plot_df = plot_df                             %>% 
+          select(site,treatment,year,pft,
+                 fates_mortality_rxfire,
+                 fates_nplant)                %>% 
+          group_by(site,treatment,year,pft)   %>% 
+          summarize_all(mean,na.rm=TRUE)      %>% 
+          ungroup()                           %>% 
+          mutate(fates_mortality_rxfire =
+          fates_mortality_rxfire/fates_nplant*100) %>% 
+          group_by(site,treatment,pft)        %>% 
+          select(-c(year,fates_nplant))       %>% 
+          summarize_all(sum,na.rm=TRUE)      %>% 
+          ungroup()
+
+plot_df$pft = factor(plot_df$pft,levels=unique(plot_df$pft))
+ 
+gg_now = ggplot(plot_df,aes(x = pft, y = fates_mortality_rxfire))
+gg_now = gg_now + facet_wrap(treatment~site, scales="free",ncol=3)
+gg_now = gg_now + geom_bar(stat = "identity")
+gg_now = gg_now + scale_x_discrete(labels = pft_keys)
+gg_now = gg_now + ylab(expression("Cumulative annual Rx fire mortality (%"~year^-1~")"))
+gg_now = gg_now + theme_grey( base_size = gg_ptsz*1.2, base_family = "Helvetica",base_line_size= 0.5,base_rect_size =0.5)
+gg_now = gg_now + theme( legend.position   = "right"
+                         , legend.text=element_text(size=gg_ptsz*1.2)
+                         , axis.text.x        = element_text( size   = gg_ptsz*1.2
+                                                           , margin = unit(rep(0.35,times=4),"cm"))
+                         , axis.text.y       = element_text( size   = gg_ptsz*1.2
+                                                           , margin = unit(rep(0.35,times=4),"cm")
+                                                           )
+                         , axis.ticks.length = unit(-0.25,"cm")
+                         )
+  
+ 
+for (d in sequence(ndevice)){
+    h_output = paste0("Rxfire-mort.",gg_device[d])
+    dummy    = ggsave( filename = h_output
+                    , plot     = gg_now
+                    , device   = gg_device[d]
+                    , path     = plot_main
+                    , width    = gg_widthn*0.8
+                    , height   = gg_height*0.8
+                    , units    = gg_units
+                    , dpi      = gg_depth
+                    )
+   }
+  
+
+ 
+  
+
+
+
 
 
 
